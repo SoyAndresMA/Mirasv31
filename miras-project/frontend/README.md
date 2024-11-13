@@ -1,50 +1,29 @@
-# React + TypeScript + Vite
+Aplicación de Control y Gestión de Eventos para Producciones Audiovisuales
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Este proyecto ha sido desarrollado por iamm solutions y está diseñado para facilitar el control y la gestión de producciones audiovisuales en directo, como noticieros, shows, eventos deportivos, y más.
 
-Currently, two official plugins are available:
+Características Principales
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Gestión de Proyectos
+    Cada proyecto representa una producción audiovisual.
+    Los proyectos contienen eventos organizados secuencialmente.
 
-## Expanding the ESLint configuration
+Interfaz de Usuario
+    Diseño moderno y profesional.
+    Control visual de todos los elementos.
+    Feedback en tiempo real del estado de cada componente.
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+Objetivo
+El objetivo principal de esta aplicación es proporcionar una herramienta profesional para controlar todos los aspectos de una producción audiovisual en directo de manera eficiente y confiable.
 
-- Configure the top-level `parserOptions` property like this:
+Desarrollador
+Este proyecto ha sido creado por iamm solutions, una empresa dedicada a ofrecer soluciones tecnológicas innovadoras.
+Instalación y Uso
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+    Clona este repositorio.
+    Sigue las instrucciones en el archivo INSTALL.md para configurar el entorno.
+    Inicia la aplicación y comienza a gestionar tus producciones audiovisuales.
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
-
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
-```
+Licencia
+Este proyecto está sujeto a una licencia privada. No está permitido su uso externo ni distribución sin autorización previa.
