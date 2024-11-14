@@ -1,42 +1,42 @@
-// Ruta del fichero: /backend/package.json
-
 {
   "name": "miras-backend",
   "version": "1.0.0",
-  "description": "Backend para sistema de control de producción audiovisual",
-  "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development nodemon --exec ts-node src/index.ts",
+    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node-esm' src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "lint": "eslint . --ext .ts",
+    "init-db": "ts-node-esm src/scripts/initDb.ts",
     "test": "jest",
-    "migrate": "node dist/database/migrations/run.js",
-    "seed": "node dist/database/seeds/run.js"
+    "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.0.3",
     "express": "^4.18.2",
+    "ws": "^8.14.2",
     "sqlite3": "^5.1.6",
-    "ws": "^8.13.0",
-    "winston": "^3.8.2",
-    "jsonwebtoken": "^9.0.0",
-    "osc": "^2.4.4"
+    "sqlite": "^5.0.1",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "winston": "^3.11.0",
+    "node-osc": "^9.0.1",
+    "casparcg-connection": "^5.1.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.13",
-    "@types/express": "^4.17.17",
-    "@types/node": "^18.15.11",
-    "@types/ws": "^8.5.4",
-    "@typescript-eslint/eslint-plugin": "^5.58.0",
-    "@typescript-eslint/parser": "^5.58.0",
-    "eslint": "^8.38.0",
-    "jest": "^29.5.0",
-    "nodemon": "^2.0.22",
-    "ts-jest": "^29.1.0",
+    "@types/express": "^4.17.21",
+    "@types/ws": "^8.5.10",
+    "@types/node": "^20.10.0",
+    "@types/cors": "^2.8.17",
+    "@types/node-osc": "^6.0.3",
+    "@typescript-eslint/eslint-plugin": "^6.12.0",
+    "@typescript-eslint/parser": "^6.12.0",
+    "eslint": "^8.54.0",
+    "nodemon": "^3.0.1",
     "ts-node": "^10.9.1",
-    "typescript": "^5.0.4"
+    "typescript": "^5.3.2",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.10",
+    "ts-jest": "^29.1.1"
   }
- }
+}

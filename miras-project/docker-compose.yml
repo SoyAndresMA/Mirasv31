@@ -1,0 +1,63 @@
+# Ruta del fichero: /docker-compose.yml
+
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:4000
+      - VITE_WS_URL=ws://localhost:4000
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./backend/database:/app/database
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=sqlite:/app/database/miras.db
+      - PORT=4000
+      - WS_PORT=4000
+      - CASPAR_HOST=casparcg
+      - CASPAR_PORT=5250
+      - CASPAR_AMCP_PORT=5250
+      - CASPAR_OSC_PORT=6250
+    depends_on:
+      - casparcg
+
+  casparcg:
+    image: casparcg/server:latest
+    ports:
+      - "5250:5250"  # AMCP
+      - "6250:6250"  # OSC
+    volumes:
+      - ./media:/media
+      - ./templates:/templates
+    environment:
+      - LANG=C.UTF-8
+      - GRAPHICS_HOST=0.0.0.0
+      - LOG_LEVEL=debug
+
+volumes:
+  media:
+  templates:
+
+networks:
+  default:
+    name: miras-network
