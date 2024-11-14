@@ -1,0 +1,3277 @@
+Este es mi proyecto. Memoriza el código y toda la información. Mas adelante te pediré modificaciones. Contesta siempre en español, con el código completo, y añadiendo en la primera linea del código la ruta del fichero. Dame los ficheros de código de uno en uno.
+No cambies nada sin que yo te lo pida o preguntando antes.
+
+Category: frontend_core
+Description: Núcleo del frontend
+Generated: 2024-11-14 11:38:25
+================================================================================
+
+Contents:
+--------------------------------------------------------------------------------
+- frontend/src/App.css
+- frontend/src/App.tsx
+- frontend/src/context/AuthContext.tsx
+- frontend/src/core/DeviceManager.ts
+- frontend/src/core/state/SystemState.ts
+- frontend/src/core/state/reducer.ts
+- frontend/src/core/state/types.ts
+- frontend/src/core/websocket/client.ts
+- frontend/src/core/websocket/constants.ts
+- frontend/src/core/websocket/types.ts
+- frontend/src/hooks/useDeviceState.ts
+- frontend/src/hooks/useItemControl.ts
+- frontend/src/hooks/useProjectOperations.ts
+- frontend/src/hooks/useServerConnection.ts
+- frontend/src/hooks/useWebSocket.ts
+- frontend/src/index.css
+- frontend/src/index.tsx
+- frontend/src/layouts/MainLayout.tsx
+- frontend/src/main.tsx
+- frontend/src/pages/ProjectEdit.tsx
+- frontend/src/pages/ProjectList.tsx
+- frontend/src/router/Router.tsx
+- frontend/src/services/api.ts
+- frontend/src/types/index.ts
+- frontend/src/utils/errors.ts
+- frontend/src/utils/validation.ts
+- frontend/src/vite-env.d.ts
+
+================================================================================
+
+
+================================================================================
+File: frontend/src/App.css
+--------------------------------------------------------------------------------
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+
+================================================================================
+File: frontend/src/App.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/App.tsx
+
+import React, { useEffect } from 'react';
+import { useWebSocket } from './hooks/useWebSocket';
+import { useGlobalState } from './core/state/GlobalContext';
+import MEvent from './components/common/MEvent/MEvent';
+import { AlertCircle, Server, Wifi, WifiOff } from 'lucide-react';
+
+const App: React.FC = () => {
+  const { connect, disconnect, isConnected } = useWebSocket();
+  const { state } = useGlobalState();
+  
+  useEffect(() => {
+    connect();
+    return () => disconnect();
+  }, [connect, disconnect]);
+
+  // Mostrar estado de conexión
+  const renderConnectionStatus = () => {
+    if (isConnected) {
+      return (
+        <div className="flex items-center gap-2 text-green-500">
+          <Wifi size={20} />
+          <span>Conectado</span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2 text-red-500">
+        <WifiOff size={20} />
+        <span>Desconectado</span>
+      </div>
+    );
+  };
+
+  // Mostrar estado de dispositivos
+  const renderDeviceStatus = () => {
+    return (
+      <div className="flex items-center gap-4">
+        {state.devices.map((device) => (
+          <div 
+            key={device.id}
+            className={`flex items-center gap-2 ${
+              device.connected ? 'text-green-500' : 'text-red-500'
+            }`}
+          >
+            <Server size={20} />
+            <span>{device.name}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Mostrar errores si existen
+  const renderErrors = () => {
+    if (state.errors.length === 0) return null;
+    
+    return (
+      <div className="fixed bottom-4 right-4 max-w-md">
+        {state.errors.map((error, index) => (
+          <div 
+            key={index}
+            className="flex items-center gap-2 bg-red-500 text-white p-4 rounded-lg mb-2"
+          >
+            <AlertCircle size={20} />
+            <span>{error.message}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white">
+      {/* Header */}
+      <header className="bg-gray-800 shadow-lg">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex justify-between items-center">
+            <h1 className="text-xl font-bold">Sistema de Control</h1>
+            <div className="flex items-center gap-6">
+              {renderConnectionStatus()}
+              {renderDeviceStatus()}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main className="container mx-auto px-4 py-6">
+        {state.currentProject ? (
+          <div className="space-y-6">
+            {state.currentProject.events.map((event) => (
+              <MEvent 
+                key={event.id}
+                event={event}
+                availableUnions={state.availableUnions}
+                onEventChange={() => {/* TODO: Implementar cambios de evento */}}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-[60vh]">
+            <div className="text-center text-gray-500">
+              <h2 className="text-2xl font-bold mb-2">No hay proyecto activo</h2>
+              <p>Selecciona un proyecto para comenzar</p>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Error notifications */}
+      {renderErrors()}
+    </div>
+  );
+};
+
+export default App;
+
+================================================================================
+File: frontend/src/index.css
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/index.css
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Colores del sistema */
+  --color-bg-primary: #0f172a;    /* bg-slate-900 - Fondo principal */
+  --color-bg-secondary: #1e293b;  /* bg-slate-800 - Paneles y elementos */
+  --color-bg-tertiary: #334155;   /* bg-slate-700 - Elementos interactivos */
+  
+  /* Colores de estado */
+  --color-success: #059669;       /* green-600 - Estados exitosos */
+  --color-warning: #d97706;       /* amber-600 - Advertencias */
+  --color-error: #dc2626;         /* red-600 - Errores */
+  --color-info: #2563eb;          /* blue-600 - Información */
+  
+  /* Colores de MItems */
+  --color-mclip-active: #2563eb;      /* blue-600 */
+  --color-mclip-inactive: #1e3a8a;    /* blue-900 */
+  --color-mcam-active: #059669;       /* green-600 */
+  --color-mcam-inactive: #064e3b;     /* green-900 */
+  --color-mprompt-active: #7c3aed;    /* violet-600 */
+  --color-mprompt-inactive: #4c1d95;  /* violet-900 */
+  --color-mgraphics-active: #db2777;  /* pink-600 */
+  --color-mgraphics-inactive: #831843;/* pink-900 */
+  --color-msound-active: #ca8a04;     /* yellow-600 */
+  --color-msound-inactive: #713f12;   /* yellow-900 */
+  --color-mmic-active: #dc2626;       /* red-600 */
+  --color-mmic-inactive: #7f1d1d;     /* red-900 */
+
+  /* Animaciones */
+  --transition-fast: 150ms;
+  --transition-normal: 250ms;
+  --transition-slow: 350ms;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-900 text-gray-100 antialiased;
+  }
+
+  /* Scrollbars personalizados */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-800;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-600 rounded-full hover:bg-slate-500 transition-colors;
+  }
+
+  /* Focus visible personalizado */
+  :focus-visible {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900;
+  }
+}
+
+@layer components {
+  /* Botones base */
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-colors
+           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700
+           focus:ring-blue-500;
+  }
+
+  .btn-secondary {
+    @apply bg-slate-700 text-white hover:bg-slate-600
+           focus:ring-slate-500;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700
+           focus:ring-red-500;
+  }
+
+  /* Paneles y tarjetas */
+  .panel {
+    @apply bg-slate-800 rounded-lg shadow-lg border border-slate-700;
+  }
+
+  .card {
+    @apply bg-slate-800 rounded-lg shadow p-4 border border-slate-700;
+  }
+}
+
+/* Utilidades específicas */
+.text-shadow {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Animaciones */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: .5;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+================================================================================
+File: frontend/src/index.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/index.tsx
+
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { GlobalStateProvider } from './core/state/GlobalContext';
+import App from './App';
+import './index.css';
+
+const container = document.getElementById('root');
+if (!container) {
+  throw new Error('No root element found in document');
+}
+
+const root = createRoot(container);
+
+root.render(
+  <React.StrictMode>
+    <GlobalStateProvider>
+      <App />
+    </GlobalStateProvider>
+  </React.StrictMode>
+);
+
+// Manejo de errores no capturados
+window.onerror = (message, source, lineno, colno, error) => {
+  console.error('Uncaught error:', { message, source, lineno, colno, error });
+  // Aquí podríamos enviar el error a un servicio de monitoreo
+};
+
+// Manejo de rechazos de promesas no capturados
+window.onunhandledrejection = (event) => {
+  console.error('Unhandled promise rejection:', event.reason);
+  // Aquí podríamos enviar el error a un servicio de monitoreo
+};
+
+================================================================================
+File: frontend/src/main.tsx
+--------------------------------------------------------------------------------
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+
+================================================================================
+File: frontend/src/vite-env.d.ts
+--------------------------------------------------------------------------------
+/// <reference types="vite/client" />
+
+
+================================================================================
+File: frontend/src/context/AuthContext.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/context/AuthContext.tsx
+
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+interface User {
+  id: number;
+  username: string;
+  role: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+          // Por ahora, simulamos un usuario autenticado
+          setUser({
+            id: 1,
+            username: 'admin',
+            role: 'admin'
+          });
+        }
+      } catch (error) {
+        console.error('Error checking auth:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  const login = async (username: string, password: string) => {
+    try {
+      // Por ahora, simulamos una autenticación exitosa
+      const mockUser = {
+        id: 1,
+        username,
+        role: 'admin'
+      };
+
+      localStorage.setItem('authToken', 'mock-token');
+      setUser(mockUser);
+      navigate('/projects');
+    } catch (error) {
+      console.error('Login error:', error);
+      throw new Error('Error en la autenticación');
+    }
+  };
+
+  const logout = async () => {
+    try {
+      localStorage.removeItem('authToken');
+      setUser(null);
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      throw new Error('Error en el cierre de sesión');
+    }
+  };
+
+  const value = {
+    user,
+    login,
+    logout,
+    isAuthenticated: !!user,
+    isLoading
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {!isLoading && children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+================================================================================
+File: frontend/src/core/DeviceManager.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/core/DeviceManager.ts
+
+import { EventEmitter } from 'events';
+import { DeviceServer } from '../devices/base/DeviceServer';
+import { DeviceConfig, DeviceType, DeviceState, DeviceStatus, DeviceError } from '../devices/base/types';
+import { Database } from '../database/connection';
+
+export enum DeviceManagerEvent {
+  DEVICE_REGISTERED = 'deviceRegistered',
+  DEVICE_UNREGISTERED = 'deviceUnregistered',
+  DEVICE_CONNECTED = 'deviceConnected',
+  DEVICE_DISCONNECTED = 'deviceDisconnected',
+  DEVICE_ERROR = 'deviceError',
+  CONFIG_UPDATED = 'configUpdated'
+}
+
+interface DeviceConstructor {
+  new (config: DeviceConfig): DeviceServer;
+}
+
+export class DeviceManager extends EventEmitter {
+  private static instance: DeviceManager;
+  private devices: Map<number, DeviceServer>;
+  private deviceFactories: Map<DeviceType, DeviceConstructor>;
+  private readonly db: Database;
+
+  private constructor(db: Database) {
+    super();
+    this.devices = new Map();
+    this.deviceFactories = new Map();
+    this.db = db;
+  }
+
+  public static getInstance(db: Database): DeviceManager {
+    if (!DeviceManager.instance) {
+      DeviceManager.instance = new DeviceManager(db);
+    }
+    return DeviceManager.instance;
+  }
+
+  /**
+   * Registra un nuevo tipo de dispositivo en el sistema
+   */
+  public registerDeviceType(type: DeviceType, factory: DeviceConstructor): void {
+    this.deviceFactories.set(type, factory);
+  }
+
+  /**
+   * Inicializa los dispositivos desde la base de datos
+   */
+  public async initialize(): Promise<void> {
+    try {
+      const configs = await this.db.getAllDeviceConfigs();
+      
+      for (const config of configs) {
+        if (config.enabled) {
+          await this.registerDevice(config);
+        }
+      }
+    } catch (error) {
+      console.error('Error initializing devices:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Registra un nuevo dispositivo
+   */
+  public async registerDevice(config: DeviceConfig): Promise<DeviceServer> {
+    const factory = this.deviceFactories.get(config.type);
+    if (!factory) {
+      throw new Error(`Unsupported device type: ${config.type}`);
+    }
+
+    try {
+      // Crear instancia del dispositivo
+      const device = new factory(config);
+      
+      // Configurar listeners
+      this.setupDeviceListeners(device);
+      
+      // Almacenar dispositivo
+      this.devices.set(config.id, device);
+      
+      // Emitir evento
+      this.emit(DeviceManagerEvent.DEVICE_REGISTERED, device.getState());
+
+      // Intentar conexión inicial si está habilitado
+      if (config.enabled) {
+        await device.connect();
+      }
+
+      return device;
+    } catch (error) {
+      console.error(`Error registering device ${config.id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Elimina un dispositivo del sistema
+   */
+  public async unregisterDevice(deviceId: number): Promise<void> {
+    const device = this.devices.get(deviceId);
+    if (!device) {
+      return;
+    }
+
+    try {
+      // Desconectar el dispositivo
+      await device.disconnect();
+      
+      // Eliminar listeners
+      device.removeAllListeners();
+      
+      // Eliminar del mapa
+      this.devices.delete(deviceId);
+      
+      // Emitir evento
+      this.emit(DeviceManagerEvent.DEVICE_UNREGISTERED, deviceId);
+    } catch (error) {
+      console.error(`Error unregistering device ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Actualiza la configuración de un dispositivo
+   */
+  public async updateDeviceConfig(deviceId: number, updates: Partial<DeviceConfig>): Promise<void> {
+    const device = this.devices.get(deviceId);
+    if (!device) {
+      throw new Error(`Device ${deviceId} not found`);
+    }
+
+    try {
+      // Actualizar en base de datos
+      const currentConfig = device.getState().config;
+      const newConfig = { ...currentConfig, ...updates };
+      await this.db.updateDeviceConfig(deviceId, newConfig);
+
+      // Reconectar si es necesario
+      if (device.getState().status === DeviceStatus.CONNECTED) {
+        await device.disconnect();
+        await device.connect();
+      }
+
+      this.emit(DeviceManagerEvent.CONFIG_UPDATED, deviceId, newConfig);
+    } catch (error) {
+      console.error(`Error updating device ${deviceId} config:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Obtiene un dispositivo por su ID
+   */
+  public getDevice(deviceId: number): DeviceServer | undefined {
+    return this.devices.get(deviceId);
+  }
+
+  /**
+   * Obtiene el estado de un dispositivo
+   */
+  public getDeviceState(deviceId: number): DeviceState | undefined {
+    return this.devices.get(deviceId)?.getState();
+  }
+
+  /**
+   * Obtiene todos los dispositivos registrados
+   */
+  public getAllDevices(): Map<number, DeviceServer> {
+    return new Map(this.devices);
+  }
+
+  /**
+   * Conecta todos los dispositivos habilitados
+   */
+  public async connectAllDevices(): Promise<void> {
+    const promises = Array.from(this.devices.values())
+      .filter(device => device.getState().config.enabled)
+      .map(device => device.connect());
+
+    await Promise.all(promises);
+  }
+
+  /**
+   * Desconecta todos los dispositivos
+   */
+  public async disconnectAllDevices(): Promise<void> {
+    const promises = Array.from(this.devices.values())
+      .map(device => device.disconnect());
+
+    await Promise.all(promises);
+  }
+
+  /**
+   * Configura los listeners para un dispositivo
+   */
+  private setupDeviceListeners(device: DeviceServer): void {
+    device.on('connected', () => {
+      this.emit(DeviceManagerEvent.DEVICE_CONNECTED, device.getState());
+    });
+
+    device.on('disconnected', () => {
+      this.emit(DeviceManagerEvent.DEVICE_DISCONNECTED, device.getState());
+    });
+
+    device.on('error', (error: DeviceError) => {
+      this.emit(DeviceManagerEvent.DEVICE_ERROR, device.getState(), error);
+    });
+
+    device.on('stateChange', (state: DeviceState) => {
+      // Propagar cambios de estado
+      this.emit('deviceStateChange', state);
+    });
+  }
+
+  /**
+   * Limpieza al cerrar la aplicación
+   */
+  public async shutdown(): Promise<void> {
+    await this.disconnectAllDevices();
+    this.devices.clear();
+    this.deviceFactories.clear();
+    this.removeAllListeners();
+    DeviceManager.instance = undefined as any;
+  }
+}
+
+================================================================================
+File: frontend/src/core/state/reducer.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/core/state/reducer.ts
+
+import { SystemState, SystemStateAction, ServerStatus, ConnectionState } from './types';
+
+const initialConnectionState: ConnectionState = {
+ connected: false,
+ reconnecting: false,
+ reconnectAttempt: 0
+};
+
+export const initialState: SystemState = {
+ config: {
+   servers: [],
+   serverStatuses: {},
+   globalSettings: {
+     autoReconnect: true,
+     reconnectDelay: 3000,
+     maxReconnectAttempts: 5,
+     defaultTransitionTime: 1000,
+     logLevel: 'info'
+   }
+ },
+ connectionState: initialConnectionState,
+ pendingCommands: new Map()
+};
+
+export function systemStateReducer(state: SystemState, action: SystemStateAction): SystemState {
+ switch (action.type) {
+   case 'SET_CONFIG':
+     return {
+       ...state,
+       config: {
+         ...state.config,
+         ...action.payload
+       }
+     };
+
+   case 'SET_CONNECTION_STATE':
+     return {
+       ...state,
+       connectionState: {
+         ...state.connectionState,
+         ...action.payload
+       }
+     };
+
+   case 'SET_ERROR':
+     return {
+       ...state,
+       lastError: action.payload
+     };
+
+   case 'CLEAR_ERROR':
+     const { lastError, ...stateWithoutError } = state;
+     return stateWithoutError;
+
+   case 'ADD_PENDING_COMMAND':
+     const newCommands = new Map(state.pendingCommands);
+     newCommands.set(action.payload.id, action.payload);
+     return {
+       ...state,
+       pendingCommands: newCommands
+     };
+
+   case 'REMOVE_PENDING_COMMAND':
+     const updatedCommands = new Map(state.pendingCommands);
+     updatedCommands.delete(action.payload);
+     return {
+       ...state,
+       pendingCommands: updatedCommands
+     };
+
+   case 'SET_SERVER_STATUS':
+     return {
+       ...state,
+       config: {
+         ...state.config,
+         serverStatuses: {
+           ...state.config.serverStatuses,
+           [action.payload.serverId]: action.payload.status
+         }
+       }
+     };
+
+   case 'SET_ACTIVE_PROJECT':
+     return {
+       ...state,
+       config: {
+         ...state.config,
+         activeProject: action.payload
+       }
+     };
+
+   case 'UPDATE_PROJECT':
+     if (!state.config.activeProject) {
+       return state;
+     }
+     return {
+       ...state,
+       config: {
+         ...state.config,
+         activeProject: {
+           ...state.config.activeProject,
+           ...action.payload,
+           modified: true
+         }
+       }
+     };
+
+   case 'CLEAR_PROJECT':
+     const configWithoutProject = { ...state.config };
+     delete configWithoutProject.activeProject;
+     return {
+       ...state,
+       config: configWithoutProject
+     };
+
+   default:
+     return state;
+ }
+}
+
+export function isServerConnected(status: ServerStatus): boolean {
+ return status === ServerStatus.CONNECTED;
+}
+
+export function canReconnect(state: SystemState): boolean {
+ const { autoReconnect, maxReconnectAttempts } = state.config.globalSettings;
+ const { reconnectAttempt } = state.connectionState;
+ 
+ return autoReconnect && reconnectAttempt < maxReconnectAttempts;
+}
+
+================================================================================
+File: frontend/src/core/state/SystemState.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/core/state/SystemState.ts
+
+import { DeviceState, PlaybackState } from '../websocket/types';
+
+export interface SystemStateItem {
+    id: number;
+    type: string;
+    state: PlaybackState;
+    lastUpdate: number;
+    details?: any;
+}
+
+export interface SystemStateDevice {
+    id: number;
+    type: string;
+    name: string;
+    state: DeviceState;
+    lastUpdate: number;
+    details?: any;
+}
+
+export interface SystemState {
+    items: Map<number, SystemStateItem>;
+    devices: Map<number, SystemStateDevice>;
+    lastUpdate: number;
+}
+
+class SystemStateManager {
+    private state: SystemState;
+    private listeners: Set<(state: SystemState) => void>;
+
+    constructor() {
+        this.state = {
+            items: new Map(),
+            devices: new Map(),
+            lastUpdate: Date.now()
+        };
+        this.listeners = new Set();
+    }
+
+    public updateItem(itemId: number, update: Partial<SystemStateItem>): void {
+        const currentItem = this.state.items.get(itemId) || {
+            id: itemId,
+            type: update.type || 'unknown',
+            state: PlaybackState.STOPPED,
+            lastUpdate: Date.now()
+        };
+
+        this.state.items.set(itemId, {
+            ...currentItem,
+            ...update,
+            lastUpdate: Date.now()
+        });
+
+        this.notifyListeners();
+    }
+
+    public updateDevice(deviceId: number, update: Partial<SystemStateDevice>): void {
+        const currentDevice = this.state.devices.get(deviceId) || {
+            id: deviceId,
+            type: update.type || 'unknown',
+            name: update.name || 'Unknown Device',
+            state: DeviceState.OFFLINE,
+            lastUpdate: Date.now()
+        };
+
+        this.state.devices.set(deviceId, {
+            ...currentDevice,
+            ...update,
+            lastUpdate: Date.now()
+        });
+
+        this.notifyListeners();
+    }
+
+    public getState(): SystemState {
+        return {
+            items: new Map(this.state.items),
+            devices: new Map(this.state.devices),
+            lastUpdate: this.state.lastUpdate
+        };
+    }
+
+    public subscribe(listener: (state: SystemState) => void): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    private notifyListeners(): void {
+        this.state.lastUpdate = Date.now();
+        for (const listener of this.listeners) {
+            listener(this.getState());
+        }
+    }
+
+    public reset(): void {
+        this.state = {
+            items: new Map(),
+            devices: new Map(),
+            lastUpdate: Date.now()
+        };
+        this.notifyListeners();
+    }
+}
+
+export default SystemStateManager;
+
+================================================================================
+File: frontend/src/core/state/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/core/state/types.ts
+
+export interface SystemConfig {
+    servers: ServerConfig[];
+    serverStatuses: Record<string, ServerStatus>;
+    activeProject?: Project;
+    globalSettings: GlobalSettings;
+   }
+   
+   export interface GlobalSettings {
+    autoReconnect: boolean;
+    reconnectDelay: number;
+    maxReconnectAttempts: number;
+    defaultTransitionTime: number;
+    logLevel: LogLevel;
+   }
+   
+   export interface ServerConfig {
+    id: string;
+    type: ServerType;
+    host: string;
+    port: number;
+    name: string;
+    enabled: boolean;
+   }
+   
+   export enum ServerType {
+    CASPAR = 'caspar',
+    VMIX = 'vmix',
+    ATEM = 'atem'
+   }
+   
+   export enum ServerStatus {
+    DISCONNECTED = 'disconnected',
+    CONNECTING = 'connecting',
+    CONNECTED = 'connected',
+    ERROR = 'error'
+   }
+   
+   export enum LogLevel {
+    ERROR = 'error',
+    WARN = 'warn',
+    INFO = 'info',
+    DEBUG = 'debug'
+   }
+   
+   export interface SystemState {
+    config: SystemConfig;
+    connectionState: ConnectionState;
+    lastError?: string;
+    pendingCommands: Map<string, CommandInfo>;
+   }
+   
+   export interface ConnectionState {
+    connected: boolean;
+    reconnecting: boolean;
+    reconnectAttempt: number;
+    lastConnected?: Date;
+    lastDisconnected?: Date;
+   }
+   
+   export interface CommandInfo {
+    id: string;
+    type: string;
+    target: string;
+    params: any;
+    timestamp: Date;
+    timeout: number;
+   }
+   
+   export interface Project {
+    id: number;
+    name: string;
+    events: ProjectEvent[];
+    modified: boolean;
+    lastSaved?: Date;
+   }
+   
+   export interface ProjectEvent {
+    id: number;
+    name: string;
+    order: number;
+    items: ProjectItem[];
+    union?: ItemUnion;
+   }
+   
+   export interface ProjectItem {
+    id: number;
+    type: ItemType;
+    server: string;
+    config: any;
+    position: ItemPosition;
+    union?: ItemUnion;
+   }
+   
+   export interface ItemPosition {
+    row: number;
+    column: number;
+   }
+   
+   export interface ItemUnion {
+    type: UnionType;
+    delay: number;
+    position: number;
+   }
+   
+   export enum ItemType {
+    CLIP = 'clip',
+    CAMERA = 'camera',
+    GRAPHICS = 'graphics',
+    PROMPT = 'prompt',
+    SOUND = 'sound',
+    MIC = 'mic'
+   }
+   
+   export enum UnionType {
+    PARALLEL = 'parallel',
+    SEQUENTIAL = 'sequential',
+    MANUAL = 'manual',
+    INFINITE = 'infinite'
+   }
+   
+   export interface SystemStateContextType {
+    state: SystemState;
+    dispatch: React.Dispatch<SystemStateAction>;
+   }
+   
+   export type SystemStateAction = 
+    | { type: 'SET_CONFIG'; payload: Partial<SystemConfig> }
+    | { type: 'SET_CONNECTION_STATE'; payload: Partial<ConnectionState> }
+    | { type: 'SET_ERROR'; payload: string }
+    | { type: 'CLEAR_ERROR' }
+    | { type: 'ADD_PENDING_COMMAND'; payload: CommandInfo }
+    | { type: 'REMOVE_PENDING_COMMAND'; payload: string }
+    | { type: 'SET_SERVER_STATUS'; payload: { serverId: string; status: ServerStatus } }
+    | { type: 'SET_ACTIVE_PROJECT'; payload: Project }
+    | { type: 'UPDATE_PROJECT'; payload: Partial<Project> }
+    | { type: 'CLEAR_PROJECT' };
+
+================================================================================
+File: frontend/src/core/websocket/client.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/core/websocket/client.ts
+
+import { 
+    MessageType, 
+    WSClientState, 
+    WSClientConfig,
+    WSEventHandlers 
+} from './types';
+
+class WebSocketClient {
+    private ws: WebSocket | null = null;
+    private config: Required<WSClientConfig>;
+    private state: WSClientState;
+    private reconnectTimeout: NodeJS.Timeout | null = null;
+    private pingInterval: NodeJS.Timeout | null = null;
+    private messageQueue: any[] = [];
+    private handlers: WSEventHandlers = {};
+
+    private readonly defaultConfig: Required<WSClientConfig> = {
+        url: 'ws://localhost:8080',
+        reconnectInterval: 5000,
+        maxReconnectAttempts: 5,
+        pingInterval: 30000,
+        debug: false
+    };
+
+    constructor(config: WSClientConfig, handlers: WSEventHandlers = {}) {
+        this.config = { ...this.defaultConfig, ...config };
+        this.handlers = handlers;
+        this.state = {
+            connected: false,
+            reconnecting: false,
+            connectionAttempts: 0
+        };
+    }
+
+    public connect(): void {
+        if (this.ws?.readyState === WebSocket.OPEN) return;
+
+        try {
+            this.ws = new WebSocket(this.config.url);
+            this.setupWebSocket();
+        } catch (error) {
+            this.handleError(error as Error);
+        }
+    }
+
+    private setupWebSocket(): void {
+        if (!this.ws) return;
+
+        this.ws.onopen = () => {
+            this.state.connected = true;
+            this.state.reconnecting = false;
+            this.state.connectionAttempts = 0;
+            this.state.lastError = undefined;
+
+            // Procesar mensajes en cola
+            while (this.messageQueue.length > 0) {
+                const message = this.messageQueue.shift();
+                this.send(message);
+            }
+
+            this.startPingInterval();
+            this.handlers.onConnect?.();
+            this.log('Conexión establecida');
+        };
+
+        this.ws.onclose = () => {
+            this.state.connected = false;
+            this.clearPingInterval();
+            this.handlers.onDisconnect?.();
+            this.attemptReconnect();
+            this.log('Conexión cerrada');
+        };
+
+        this.ws.onerror = (error) => {
+            this.handleError(error as Error);
+        };
+
+        this.ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                this.handleMessage(message);
+            } catch (error) {
+                this.handleError(new Error('Error parsing message'));
+            }
+        };
+    }
+
+    private handleMessage(message: any): void {
+        this.state.lastMessageTime = Date.now();
+
+        switch (message.type) {
+            case MessageType.PONG:
+                this.log('Pong recibido');
+                break;
+
+            case MessageType.ERROR:
+                this.handleError(new Error(message.payload.message));
+                break;
+
+            default:
+                this.handlers.onMessage?.(message);
+        }
+    }
+
+    private handleError(error: Error): void {
+        this.state.lastError = error.message;
+        this.handlers.onError?.(error);
+        this.log('Error:', error.message);
+    }
+
+    private attemptReconnect(): void {
+        if (
+            this.state.connectionAttempts >= this.config.maxReconnectAttempts ||
+            this.reconnectTimeout
+        ) return;
+
+        this.state.reconnecting = true;
+        this.state.connectionAttempts++;
+
+        this.reconnectTimeout = setTimeout(() => {
+            this.reconnectTimeout = null;
+            this.handlers.onReconnect?.();
+            this.connect();
+        }, this.config.reconnectInterval);
+
+        this.log(`Intento de reconexión ${this.state.connectionAttempts}/${this.config.maxReconnectAttempts}`);
+    }
+
+    private startPingInterval(): void {
+        this.pingInterval = setInterval(() => {
+            this.send({
+                type: MessageType.PING,
+                timestamp: Date.now(),
+                payload: null
+            });
+        }, this.config.pingInterval);
+    }
+
+    private clearPingInterval(): void {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+    }
+
+    public send(message: any): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.messageQueue.push(message);
+            return;
+        }
+
+        try {
+            this.ws.send(JSON.stringify(message));
+        } catch (error) {
+            this.handleError(error as Error);
+        }
+    }
+
+    public getState(): WSClientState {
+        return { ...this.state };
+    }
+
+    public disconnect(): void {
+        this.clearPingInterval();
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
+        this.ws?.close();
+    }
+
+    private log(...args: any[]): void {
+        if (this.config.debug) {
+            console.log('[WebSocketClient]', ...args);
+        }
+    }
+}
+
+export default WebSocketClient;
+
+================================================================================
+File: frontend/src/core/websocket/constants.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/core/websocket/constants.ts
+
+export const WS_EVENTS = {
+    // Eventos de conexión
+    CONNECT: 'connect',
+    DISCONNECT: 'disconnect',
+    ERROR: 'error',
+    RECONNECT_ATTEMPT: 'reconnect_attempt',
+    RECONNECT_FAILED: 'reconnect_failed',
+    RECONNECT_SUCCESS: 'reconnect_success',
+   
+    // Eventos de servidor
+    SERVER_STATUS: 'server_status',
+    SERVER_ERROR: 'server_error',
+    SERVER_COMMAND: 'server_command',
+    SERVER_RESPONSE: 'server_response',
+   
+    // Eventos de proyecto
+    PROJECT_LOADED: 'project_loaded',
+    PROJECT_SAVED: 'project_saved',
+    PROJECT_ERROR: 'project_error',
+    PROJECT_CHANGED: 'project_changed',
+   
+    // Eventos de items
+    ITEM_STATE_CHANGED: 'item_state_changed',
+    ITEM_ERROR: 'item_error',
+    ITEM_COMMAND: 'item_command',
+    ITEM_RESPONSE: 'item_response',
+   
+    // Eventos de uniones
+    UNION_ACTIVATED: 'union_activated',
+    UNION_DEACTIVATED: 'union_deactivated',
+    UNION_ERROR: 'union_error'
+   } as const;
+   
+   export const WS_COMMANDS = {
+    // Comandos de servidor
+    CONNECT_SERVER: 'connect_server',
+    DISCONNECT_SERVER: 'disconnect_server',
+    GET_SERVER_STATUS: 'get_server_status',
+   
+    // Comandos de proyecto
+    LOAD_PROJECT: 'load_project',
+    SAVE_PROJECT: 'save_project',
+    CREATE_PROJECT: 'create_project',
+    DELETE_PROJECT: 'delete_project',
+   
+    // Comandos de items
+    PLAY_ITEM: 'play_item',
+    STOP_ITEM: 'stop_item',
+    UPDATE_ITEM: 'update_item',
+    DELETE_ITEM: 'delete_item',
+   
+    // Comandos de uniones
+    ACTIVATE_UNION: 'activate_union',
+    DEACTIVATE_UNION: 'deactivate_union',
+    UPDATE_UNION: 'update_union'
+   } as const;
+   
+   export const WS_DEFAULT_CONFIG = {
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 3000,
+    timeout: 10000,
+    pingInterval: 10000,
+    pingTimeout: 5000
+   } as const;
+   
+   export const WS_ERROR_CODES = {
+    CONNECTION_FAILED: 'CONNECTION_FAILED',
+    SERVER_ERROR: 'SERVER_ERROR',
+    COMMAND_FAILED: 'COMMAND_FAILED',
+    TIMEOUT: 'TIMEOUT',
+    INVALID_MESSAGE: 'INVALID_MESSAGE'
+   } as const;
+   
+   export const COMMAND_TIMEOUT = 30000; // 30 segundos
+   
+   export const MAX_RECONNECTION_ATTEMPTS = 5;
+   
+   export const PING_INTERVAL = 10000; // 10 segundos
+   
+   export const CONNECTION_TIMEOUT = 10000; // 10 segundos
+
+================================================================================
+File: frontend/src/core/websocket/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/core/websocket/types.ts
+
+// Re-exportamos los tipos base del backend para mantener consistencia
+export { 
+    MessageType,
+    ConnectionState,
+    DeviceState,
+    PlaybackState 
+} from '../../../../backend/src/websocket/types';
+
+// Estado del cliente WebSocket
+export interface WSClientState {
+    connected: boolean;
+    reconnecting: boolean;
+    lastError?: string;
+    connectionAttempts: number;
+    lastMessageTime?: number;
+}
+
+// Opciones de configuración del cliente
+export interface WSClientConfig {
+    url: string;
+    reconnectInterval?: number;
+    maxReconnectAttempts?: number;
+    pingInterval?: number;
+    debug?: boolean;
+}
+
+// Manejadores de eventos
+export interface WSEventHandlers {
+    onConnect?: () => void;
+    onDisconnect?: () => void;
+    onError?: (error: Error) => void;
+    onReconnect?: () => void;
+    onMessage?: (message: any) => void;
+}
+
+// Tipos de respuesta específicos del frontend
+export interface StateUpdateResponse {
+    systemState: any; // TODO: Definir tipo específico
+    timestamp: number;
+}
+
+export interface ItemStatusResponse {
+    itemId: number;
+    state: PlaybackState;
+    timestamp: number;
+    details?: any;
+}
+
+export interface DeviceStatusResponse {
+    deviceId: number;
+    state: DeviceState;
+    timestamp: number;
+    details?: any;
+}
+
+================================================================================
+File: frontend/src/hooks/useDeviceState.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/hooks/useDeviceState.ts
+
+import { useEffect, useState } from 'react';
+import { useWebSocket } from './useWebSocket';
+import { DeviceState, DeviceType } from '../core/types';
+
+export function useDeviceState(deviceId: string, type: DeviceType) {
+    const ws = useWebSocket();
+    const [state, setState] = useState<DeviceState>('disconnected');
+    const [error, setError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        if (!ws) return;
+
+        // Suscribirse a actualizaciones de estado del dispositivo
+        const handleStateUpdate = (message: any) => {
+            if (message.deviceId === deviceId) {
+                setState(message.state);
+                setError(message.error || null);
+                setIsLoading(false);
+            }
+        };
+
+        ws.subscribe('DEVICE_STATE_UPDATE', handleStateUpdate);
+
+        // Solicitar estado inicial
+        ws.send('GET_DEVICE_STATE', { deviceId, type }).catch(err => {
+            console.error('Error getting device state:', err);
+            setError(err.message);
+            setIsLoading(false);
+        });
+
+        return () => {
+            ws.unsubscribe('DEVICE_STATE_UPDATE', handleStateUpdate);
+        };
+    }, [ws, deviceId, type]);
+
+    const reconnect = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            await ws?.send('RECONNECT_DEVICE', { deviceId, type });
+        } catch (err) {
+            setError(err.message);
+            console.error('Error reconnecting device:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return {
+        state,
+        error,
+        isLoading,
+        reconnect
+    };
+}
+
+// Hook específico para CasparCG
+export function useCasparState(deviceId: string) {
+    const { state, error, isLoading, reconnect } = useDeviceState(deviceId, 'caspar');
+    
+    return {
+        state,
+        error,
+        isLoading,
+        reconnect,
+        isPlaying: state === 'playing',
+        isPaused: state === 'paused',
+        isStopped: state === 'stopped',
+        isConnected: state !== 'disconnected',
+        hasError: Boolean(error)
+    };
+}
+
+// Hook específico para VMix
+export function useVMixState(deviceId: string) {
+    const { state, error, isLoading, reconnect } = useDeviceState(deviceId, 'vmix');
+    
+    return {
+        state,
+        error,
+        isLoading,
+        reconnect,
+        isStreaming: state === 'streaming',
+        isPreview: state === 'preview',
+        isProgram: state === 'program',
+        isConnected: state !== 'disconnected',
+        hasError: Boolean(error)
+    };
+}
+
+// Hook específico para ATEM
+export function useATEMState(deviceId: string) {
+    const { state, error, isLoading, reconnect } = useDeviceState(deviceId, 'atem');
+    
+    return {
+        state,
+        error,
+        isLoading,
+        reconnect,
+        isPreview: state === 'preview',
+        isProgram: state === 'program',
+        isConnected: state !== 'disconnected',
+        hasError: Boolean(error)
+    };
+}
+
+================================================================================
+File: frontend/src/hooks/useItemControl.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/hooks/useItemControl.ts
+
+import { useState, useCallback } from 'react';
+import { useWebSocket } from './useWebSocket';
+import { ItemCommand, ItemState, ItemType } from '../core/types';
+
+interface ItemControlOptions {
+    optimisticUpdate?: boolean;
+    retryCount?: number;
+    retryDelay?: number;
+}
+
+export function useItemControl(
+    itemId: string,
+    type: ItemType,
+    options: ItemControlOptions = {}
+) {
+    const {
+        optimisticUpdate = true,
+        retryCount = 3,
+        retryDelay = 1000
+    } = options;
+
+    const ws = useWebSocket();
+    const [state, setState] = useState<ItemState>('stopped');
+    const [error, setError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const sendCommand = useCallback(async (
+        command: ItemCommand,
+        params: Record<string, any> = {}
+    ) => {
+        setError(null);
+        setIsLoading(true);
+
+        // Actualización optimista del estado
+        if (optimisticUpdate) {
+            switch (command) {
+                case 'PLAY':
+                    setState('playing');
+                    break;
+                case 'STOP':
+                    setState('stopped');
+                    break;
+                case 'PAUSE':
+                    setState('paused');
+                    break;
+            }
+        }
+
+        let attempts = 0;
+        while (attempts < retryCount) {
+            try {
+                await ws?.send('ITEM_COMMAND', {
+                    itemId,
+                    type,
+                    command,
+                    ...params
+                });
+                setIsLoading(false);
+                return true;
+            } catch (err) {
+                attempts++;
+                if (attempts === retryCount) {
+                    setError(err.message);
+                    setIsLoading(false);
+                    // Revertir estado optimista si falló
+                    if (optimisticUpdate) {
+                        setState(prev => prev === 'playing' ? 'stopped' : prev);
+                    }
+                    throw err;
+                }
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+            }
+        }
+    }, [ws, itemId, type, optimisticUpdate, retryCount, retryDelay]);
+
+    const play = useCallback(async (params?: Record<string, any>) => {
+        return sendCommand('PLAY', params);
+    }, [sendCommand]);
+
+    const stop = useCallback(async (params?: Record<string, any>) => {
+        return sendCommand('STOP', params);
+    }, [sendCommand]);
+
+    const pause = useCallback(async (params?: Record<string, any>) => {
+        return sendCommand('PAUSE', params);
+    }, [sendCommand]);
+
+    const update = useCallback(async (params: Record<string, any>) => {
+        return sendCommand('UPDATE', params);
+    }, [sendCommand]);
+
+    return {
+        state,
+        error,
+        isLoading,
+        play,
+        stop,
+        pause,
+        update,
+        isPlaying: state === 'playing',
+        isPaused: state === 'paused',
+        isStopped: state === 'stopped',
+        hasError: Boolean(error)
+    };
+}
+
+// Hooks específicos por tipo de item
+export function useCasparClipControl(itemId: string, options?: ItemControlOptions) {
+    return useItemControl(itemId, 'caspar_clip', options);
+}
+
+export function useCasparGraphicsControl(itemId: string, options?: ItemControlOptions) {
+    return useItemControl(itemId, 'caspar_graphics', options);
+}
+
+export function useCasparPromptControl(itemId: string, options?: ItemControlOptions) {
+    return useItemControl(itemId, 'caspar_prompt', options);
+}
+
+export function useVMixInputControl(itemId: string, options?: ItemControlOptions) {
+    return useItemControl(itemId, 'vmix_input', options);
+}
+
+export function useATEMInputControl(itemId: string, options?: ItemControlOptions) {
+    return useItemControl(itemId, 'atem_input', options);
+}
+
+================================================================================
+File: frontend/src/hooks/useProjectOperations.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/hooks/useProjectOperations.ts
+
+import { useCallback } from 'react';
+import { useWebSocket } from './useWebSocket';
+import { useSystemState } from '../core/state/GlobalContext';
+import { Project, ProjectEvent, ProjectItem } from '../core/state/types';
+import { WS_COMMANDS, WS_EVENTS } from '../core/websocket/constants';
+
+interface UseProjectOperationsReturn {
+ loadProject: (id: number) => Promise<Project>;
+ saveProject: (project: Project) => Promise<void>;
+ createProject: (name: string) => Promise<Project>;
+ deleteProject: (id: number) => Promise<void>;
+ updateEvent: (projectId: number, event: ProjectEvent) => Promise<void>;
+ deleteEvent: (projectId: number, eventId: number) => Promise<void>;
+ updateItem: (projectId: number, eventId: number, item: ProjectItem) => Promise<void>;
+ deleteItem: (projectId: number, eventId: number, itemId: number) => Promise<void>;
+ isModified: boolean;
+}
+
+export function useProjectOperations(): UseProjectOperationsReturn {
+ const ws = useWebSocket();
+ const { state, dispatch } = useSystemState();
+
+ const loadProject = useCallback(async (id: number): Promise<Project> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     const project = await ws.emit(WS_COMMANDS.LOAD_PROJECT, { id });
+     dispatch({ type: 'SET_ACTIVE_PROJECT', payload: project });
+     return project;
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to load project: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch]);
+
+ const saveProject = useCallback(async (project: Project): Promise<void> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     await ws.emit(WS_COMMANDS.SAVE_PROJECT, project);
+     dispatch({ 
+       type: 'UPDATE_PROJECT', 
+       payload: { ...project, modified: false, lastSaved: new Date() } 
+     });
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to save project: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch]);
+
+ const createProject = useCallback(async (name: string): Promise<Project> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     const newProject = await ws.emit(WS_COMMANDS.CREATE_PROJECT, { name });
+     dispatch({ type: 'SET_ACTIVE_PROJECT', payload: newProject });
+     return newProject;
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to create project: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch]);
+
+ const deleteProject = useCallback(async (id: number): Promise<void> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     await ws.emit(WS_COMMANDS.DELETE_PROJECT, { id });
+     dispatch({ type: 'CLEAR_PROJECT' });
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to delete project: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch]);
+
+ const updateEvent = useCallback(async (projectId: number, event: ProjectEvent): Promise<void> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     await ws.emit(WS_COMMANDS.UPDATE_ITEM, { projectId, event });
+     if (state.config.activeProject?.id === projectId) {
+       const updatedEvents = state.config.activeProject.events.map(e => 
+         e.id === event.id ? event : e
+       );
+       dispatch({ 
+         type: 'UPDATE_PROJECT', 
+         payload: { events: updatedEvents } 
+       });
+     }
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to update event: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch, state.config.activeProject]);
+
+ const deleteEvent = useCallback(async (projectId: number, eventId: number): Promise<void> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     await ws.emit(WS_COMMANDS.DELETE_ITEM, { projectId, eventId });
+     if (state.config.activeProject?.id === projectId) {
+       const updatedEvents = state.config.activeProject.events.filter(e => e.id !== eventId);
+       dispatch({ 
+         type: 'UPDATE_PROJECT', 
+         payload: { events: updatedEvents } 
+       });
+     }
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to delete event: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch, state.config.activeProject]);
+
+ const updateItem = useCallback(async (
+   projectId: number, 
+   eventId: number, 
+   item: ProjectItem
+ ): Promise<void> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     await ws.emit(WS_COMMANDS.UPDATE_ITEM, { projectId, eventId, item });
+     if (state.config.activeProject?.id === projectId) {
+       const updatedEvents = state.config.activeProject.events.map(event => {
+         if (event.id !== eventId) return event;
+         return {
+           ...event,
+           items: event.items.map(i => i.id === item.id ? item : i)
+         };
+       });
+       dispatch({ 
+         type: 'UPDATE_PROJECT', 
+         payload: { events: updatedEvents } 
+       });
+     }
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to update item: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch, state.config.activeProject]);
+
+ const deleteItem = useCallback(async (
+   projectId: number, 
+   eventId: number, 
+   itemId: number
+ ): Promise<void> => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     await ws.emit(WS_COMMANDS.DELETE_ITEM, { projectId, eventId, itemId });
+     if (state.config.activeProject?.id === projectId) {
+       const updatedEvents = state.config.activeProject.events.map(event => {
+         if (event.id !== eventId) return event;
+         return {
+           ...event,
+           items: event.items.filter(i => i.id !== itemId)
+         };
+       });
+       dispatch({ 
+         type: 'UPDATE_PROJECT', 
+         payload: { events: updatedEvents } 
+       });
+     }
+   } catch (error) {
+     dispatch({ 
+       type: 'SET_ERROR', 
+       payload: `Failed to delete item: ${error instanceof Error ? error.message : 'Unknown error'}`
+     });
+     throw error;
+   }
+ }, [ws, dispatch, state.config.activeProject]);
+
+ return {
+   loadProject,
+   saveProject,
+   createProject,
+   deleteProject,
+   updateEvent,
+   deleteEvent,
+   updateItem,
+   deleteItem,
+   isModified: state.config.activeProject?.modified || false
+ };
+}
+
+================================================================================
+File: frontend/src/hooks/useServerConnection.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/hooks/useServerConnection.ts
+
+import { useEffect, useCallback, useState } from 'react';
+import { useWebSocket } from './useWebSocket';
+import { useSystemState } from '../core/state/GlobalContext';
+import { ServerStatus, ServerConfig } from '../core/state/types';
+import { WS_EVENTS, WS_COMMANDS } from '../core/websocket/constants';
+
+interface UseServerConnectionReturn {
+ connect: (config: ServerConfig) => Promise<void>;
+ disconnect: (serverId: string) => Promise<void>;
+ getStatus: (serverId: string) => ServerStatus;
+ isConnected: (serverId: string) => boolean;
+ connectionError: string | null;
+ isConnecting: boolean;
+}
+
+export function useServerConnection(): UseServerConnectionReturn {
+ const ws = useWebSocket();
+ const { state, dispatch } = useSystemState();
+ const [connectionError, setConnectionError] = useState<string | null>(null);
+ const [isConnecting, setIsConnecting] = useState(false);
+
+ useEffect(() => {
+   if (!ws) return;
+
+   const handleServerStatus = ({ serverId, status }: { serverId: string; status: ServerStatus }) => {
+     dispatch({ 
+       type: 'SET_SERVER_STATUS', 
+       payload: { serverId, status } 
+     });
+   };
+
+   const handleServerError = ({ serverId, error }: { serverId: string; error: string }) => {
+     setConnectionError(error);
+     dispatch({
+       type: 'SET_SERVER_STATUS',
+       payload: { serverId, status: ServerStatus.ERROR }
+     });
+   };
+
+   ws.on(WS_EVENTS.SERVER_STATUS, handleServerStatus);
+   ws.on(WS_EVENTS.SERVER_ERROR, handleServerError);
+
+   return () => {
+     ws.off(WS_EVENTS.SERVER_STATUS, handleServerStatus);
+     ws.off(WS_EVENTS.SERVER_ERROR, handleServerError);
+   };
+ }, [ws, dispatch]);
+
+ const connect = useCallback(async (config: ServerConfig) => {
+   if (!ws) throw new Error('WebSocket not initialized');
+   
+   setIsConnecting(true);
+   setConnectionError(null);
+
+   try {
+     await ws.emit(WS_COMMANDS.CONNECT_SERVER, config);
+     dispatch({
+       type: 'SET_SERVER_STATUS',
+       payload: { serverId: config.id, status: ServerStatus.CONNECTING }
+     });
+   } catch (error) {
+     setConnectionError(error instanceof Error ? error.message : 'Connection failed');
+     dispatch({
+       type: 'SET_SERVER_STATUS',
+       payload: { serverId: config.id, status: ServerStatus.ERROR }
+     });
+     throw error;
+   } finally {
+     setIsConnecting(false);
+   }
+ }, [ws, dispatch]);
+
+ const disconnect = useCallback(async (serverId: string) => {
+   if (!ws) throw new Error('WebSocket not initialized');
+
+   try {
+     await ws.emit(WS_COMMANDS.DISCONNECT_SERVER, { serverId });
+     dispatch({
+       type: 'SET_SERVER_STATUS',
+       payload: { serverId, status: ServerStatus.DISCONNECTED }
+     });
+   } catch (error) {
+     setConnectionError(error instanceof Error ? error.message : 'Disconnection failed');
+     throw error;
+   }
+ }, [ws, dispatch]);
+
+ const getStatus = useCallback((serverId: string): ServerStatus => {
+   return state.config.serverStatuses[serverId] || ServerStatus.DISCONNECTED;
+ }, [state.config.serverStatuses]);
+
+ const isConnected = useCallback((serverId: string): boolean => {
+   return getStatus(serverId) === ServerStatus.CONNECTED;
+ }, [getStatus]);
+
+ return {
+   connect,
+   disconnect,
+   getStatus,
+   isConnected,
+   connectionError,
+   isConnecting
+ };
+}
+
+================================================================================
+File: frontend/src/hooks/useWebSocket.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: frontend/src/hooks/useWebSocket.ts
+
+import { useState, useEffect, useCallback } from 'react';
+import { WebSocketClient } from '../core/websocket/client';
+import { WebSocketMessage } from '../core/websocket/types';
+
+const WS_RECONNECT_DELAY = 5000;
+const WS_MAX_RECONNECT_ATTEMPTS = 5;
+
+export function useWebSocket() {
+  const [ws, setWs] = useState<WebSocketClient | null>(null);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const connect = useCallback(async () => {
+    if (isConnecting || (ws && ws.isConnected())) return;
+
+    setIsConnecting(true);
+
+    try {
+      const client = new WebSocketClient();
+      await client.connect();
+      
+      setWs(client);
+      setReconnectAttempts(0);
+    } catch (error) {
+      console.error('WebSocket connection failed:', error);
+      
+      if (reconnectAttempts < WS_MAX_RECONNECT_ATTEMPTS) {
+        setTimeout(() => {
+          setReconnectAttempts(prev => prev + 1);
+          setIsConnecting(false);
+        }, WS_RECONNECT_DELAY);
+      }
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [ws, isConnecting, reconnectAttempts]);
+
+  useEffect(() => {
+    connect();
+
+    return () => {
+      if (ws) {
+        ws.disconnect();
+      }
+    };
+  }, [connect]);
+  
+  useEffect(() => {
+    if (!ws) return;
+
+    const handleDisconnect = () => {
+      if (reconnectAttempts < WS_MAX_RECONNECT_ATTEMPTS) {
+        setTimeout(connect, WS_RECONNECT_DELAY);
+      }
+    };
+
+    ws.on('disconnect', handleDisconnect);
+
+    return () => {
+      ws.off('disconnect', handleDisconnect);
+    };
+  }, [ws, connect, reconnectAttempts]);
+
+  const send = useCallback(async (type: string, payload?: any): Promise<void> => {
+    if (!ws || !ws.isConnected()) {
+      throw new Error('WebSocket is not connected');
+    }
+
+    const message: WebSocketMessage = {
+      type,
+      payload,
+      timestamp: new Date().toISOString()
+    };
+
+    await ws.send(message);
+  }, [ws]);
+
+  const subscribe = useCallback((event: string, callback: (data: any) => void) => {
+    if (!ws) return () => {};
+    
+    ws.on(event, callback);
+    return () => ws.off(event, callback);
+  }, [ws]);
+
+  return {
+    ws,
+    isConnected: ws?.isConnected() || false,
+    isConnecting,
+    reconnectAttempts,
+    send,
+    subscribe,
+    connect
+  };
+}
+
+// Hooks auxiliares para casos de uso específicos
+export function useWebSocketEvent<T = any>(event: string, callback: (data: T) => void) {
+  const { subscribe } = useWebSocket();
+
+  useEffect(() => {
+    return subscribe(event, callback);
+  }, [event, callback, subscribe]);
+}
+
+export function useWebSocketState<T = any>(event: string) {
+  const [state, setState] = useState<T | null>(null);
+  const { subscribe } = useWebSocket();
+
+  useEffect(() => {
+    return subscribe(event, (data: T) => setState(data));
+  }, [event, subscribe]);
+
+  return state;
+}
+
+export function useWebSocketCommand() {
+  const { send, isConnected } = useWebSocket();
+
+  const executeCommand = useCallback(async (command: string, params?: any) => {
+    if (!isConnected) {
+      throw new Error('No WebSocket connection available');
+    }
+
+    try {
+      await send('command', { command, params });
+    } catch (error) {
+      console.error('Failed to execute command:', error);
+      throw error;
+    }
+  }, [send, isConnected]);
+
+  return {
+    executeCommand,
+    isConnected
+  };
+}
+
+================================================================================
+File: frontend/src/layouts/MainLayout.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/layouts/MainLayout.tsx
+
+import React from 'react';
+import { useNavigate, Outlet } from 'react-router-dom';
+import { Settings, LogOut, Menu } from 'lucide-react';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { useServerConnection } from '../hooks/useServerConnection';
+import Notifications from '../components/common/Notifications';
+import ServerStatus from '../components/common/ServerStatus';
+import { useAuth } from '../context/AuthContext';
+
+const MainLayout: React.FC = () => {
+  const navigate = useNavigate();
+  const { isConnected } = useWebSocket();
+  const { serverStatus } = useServerConnection();
+  const { logout, user } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900">
+      {/* Header */}
+      <header className="bg-gray-800 border-b border-gray-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            {/* Left section */}
+            <div className="flex items-center">
+              <button
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none"
+              >
+                <Menu className="h-6 w-6" />
+              </button>
+              <h1 className="ml-4 text-xl font-bold text-white">
+                MIRAS Production System
+              </h1>
+            </div>
+
+            {/* Right section */}
+            <div className="flex items-center space-x-4">
+              <ServerStatus 
+                isWebSocketConnected={isConnected}
+                serverStatus={serverStatus}
+              />
+              
+              <div className="relative">
+                <button
+                  className="p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none"
+                  onClick={() => navigate('/settings')}
+                >
+                  <Settings className="h-6 w-6" />
+                </button>
+              </div>
+
+              {user && (
+                <div className="flex items-center space-x-2">
+                  <span className="text-gray-300">{user.username}</span>
+                  <button
+                    onClick={handleLogout}
+                    className="p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none"
+                  >
+                    <LogOut className="h-6 w-6" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sidebar */}
+      {isMenuOpen && (
+        <div className="fixed inset-0 z-40">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50"
+            onClick={() => setIsMenuOpen(false)}
+          />
+
+          {/* Sidebar content */}
+          <div className="fixed inset-y-0 left-0 w-64 bg-gray-800 border-r border-gray-700">
+            <div className="flex flex-col h-full">
+              <div className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+                <button
+                  className="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 rounded-md"
+                  onClick={() => {
+                    navigate('/projects');
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  Proyectos
+                </button>
+                <button
+                  className="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 rounded-md"
+                  onClick={() => {
+                    navigate('/devices');
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  Dispositivos
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Outlet />
+      </main>
+
+      {/* Notifications */}
+      <Notifications />
+    </div>
+  );
+};
+
+export default MainLayout;
+
+================================================================================
+File: frontend/src/pages/ProjectEdit.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/pages/ProjectEdit.tsx
+
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Save, ArrowLeft, Trash2, AlertCircle } from 'lucide-react';
+import { useProjectOperations } from '../hooks/useProjectOperations';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { useServerConnection } from '../hooks/useServerConnection';
+import MEvent from '../components/common/MEvent/MEvent';
+import Loading from '../components/common/Loading';
+import type { Project, ProjectEvent } from '../core/state/types';
+
+const ProjectEdit: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { send } = useWebSocket();
+  const { serverStatus } = useServerConnection();
+  const { 
+    project,
+    isLoading,
+    error,
+    loadProject,
+    saveProject,
+    updateEvent
+  } = useProjectOperations();
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  useEffect(() => {
+    if (id) {
+      loadProject(parseInt(id));
+    }
+  }, [id, loadProject]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  const handleEventChange = async (eventId: number, changes: Partial<ProjectEvent>) => {
+    if (!project) return;
+
+    // Actualización optimista
+    updateEvent(eventId, changes);
+    setHasUnsavedChanges(true);
+
+    // Notificar al servidor vía WebSocket
+    try {
+      await send('EVENT_UPDATE', {
+        projectId: project.id,
+        eventId,
+        changes
+      });
+    } catch (error) {
+      console.error('Error updating event:', error);
+      // Aquí deberías manejar el error y posiblemente revertir los cambios
+    }
+  };
+
+  const handleSave = async () => {
+    if (!project) return;
+
+    try {
+      setIsSaving(true);
+      await saveProject(project);
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error('Error saving project:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading || !project) return <Loading />;
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center space-y-4">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
+          <div className="text-xl font-semibold text-red-500">Error</div>
+          <div className="text-gray-400">{error}</div>
+          <button
+            onClick={() => navigate('/projects')}
+            className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors"
+          >
+            Volver a proyectos
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={() => navigate('/projects')}
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
+          >
+            <ArrowLeft className="h-6 w-6" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-white">{project.project_name}</h1>
+            <p className="text-gray-400">{project.description}</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center space-x-4">
+          {serverStatus !== 'connected' && (
+            <div className="text-yellow-500 flex items-center space-x-2">
+              <AlertCircle className="h-5 w-5" />
+              <span>Servidor desconectado</span>
+            </div>
+          )}
+
+          <button
+            onClick={handleSave}
+            disabled={!hasUnsavedChanges || isSaving}
+            className={`
+              flex items-center space-x-2 px-4 py-2 rounded-md transition-colors
+              ${hasUnsavedChanges && !isSaving 
+                ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                : 'bg-gray-700 text-gray-400 cursor-not-allowed'}
+            `}
+          >
+            <Save className="h-5 w-5" />
+            <span>{isSaving ? 'Guardando...' : 'Guardar'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (window.confirm('¿Estás seguro de eliminar este proyecto?')) {
+                // Implementar eliminación
+              }
+            }}
+            className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+          >
+            <Trash2 className="h-5 w-5" />
+            <span>Eliminar</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Events list */}
+      <div className="space-y-4">
+        {project.events?.map((event) => (
+          <MEvent
+            key={event.id}
+            event={event}
+            onEventChange={handleEventChange}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default ProjectEdit;
+
+================================================================================
+File: frontend/src/pages/ProjectList.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/pages/ProjectList.tsx
+
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Folder, Search, Calendar } from 'lucide-react';
+import { useProjectOperations } from '../hooks/useProjectOperations';
+import { ProjectCard } from '../components/common/ProjectCard';
+import Loading from '../components/common/Loading';
+import type { Project } from '../core/state/types';
+
+const ProjectList: React.FC = () => {
+  const navigate = useNavigate();
+  const { projects, isLoading, error, loadProjects } = useProjectOperations();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredProjects, setFilteredProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  useEffect(() => {
+    if (!projects) return;
+    
+    const filtered = projects.filter(project => 
+      project.project_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.description?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    
+    setFilteredProjects(filtered);
+  }, [searchTerm, projects]);
+
+  if (isLoading) return <Loading />;
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-500 mb-4">Error cargando proyectos: {error}</div>
+        <button
+          onClick={() => loadProjects()}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-2">
+          <Folder className="h-6 w-6 text-blue-500" />
+          <h1 className="text-2xl font-bold text-white">Proyectos</h1>
+        </div>
+        <button
+          onClick={() => navigate('/projects/new')}
+          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+        >
+          <Plus className="h-5 w-5" />
+          <span>Nuevo Proyecto</span>
+        </button>
+      </div>
+
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Buscar proyectos..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 bg-gray-800 text-white border border-gray-700 rounded-md focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      {/* Project grid */}
+      {filteredProjects.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredProjects.map((project) => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              onClick={() => navigate(`/projects/${project.id}`)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <Calendar className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+          {searchTerm ? (
+            <>
+              <h3 className="text-lg font-medium text-gray-300 mb-2">
+                No se encontraron proyectos
+              </h3>
+              <p className="text-gray-500">
+                No hay proyectos que coincidan con "{searchTerm}"
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="text-lg font-medium text-gray-300 mb-2">
+                No hay proyectos
+              </h3>
+              <p className="text-gray-500">
+                Comienza creando tu primer proyecto
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ProjectList;
+
+================================================================================
+File: frontend/src/router/Router.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/router/Router.tsx
+
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import MainLayout from '@layouts/MainLayout';
+import ProjectList from '@pages/ProjectList';
+import ProjectEdit from '@pages/ProjectEdit';
+import ErrorBoundary from '@components/common/ErrorBoundary';
+import { useAuth } from '@context/AuthContext';
+import Loading from '@components/common/Loading';
+
+const Router = () => {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <Loading />;
+  }
+
+  const router = createBrowserRouter([
+    {
+      path: '/',
+      element: <MainLayout />,
+      errorElement: <ErrorBoundary />,
+      children: [
+        {
+          index: true,
+          element: <ProjectList />,
+        },
+        {
+          path: 'projects',
+          children: [
+            {
+              index: true,
+              element: <ProjectList />,
+            },
+            {
+              path: ':id',
+              element: <ProjectEdit />,
+            }
+          ]
+        },
+        {
+          path: 'servers',
+          children: [
+            {
+              path: 'caspar/config',
+              element: <CasparServerConfig />
+            }
+          ]
+        }
+      ]
+    }
+  ]);
+
+  return <RouterProvider router={router} />;
+};
+
+export default Router;
+
+================================================================================
+File: frontend/src/services/api.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/services/api.ts
+
+import axios, { AxiosError, AxiosResponse } from 'axios';
+import type { Project, MUnion } from '../core/state/types';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 10000,
+});
+
+// Interceptor para manejar tokens de autenticación
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Interceptor para manejar errores
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('authToken');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Tipos de respuesta
+interface ApiResponse<T> {
+  data: T;
+  message?: string;
+}
+
+// Función helper para extraer datos de la respuesta
+const extractData = <T>(response: AxiosResponse<ApiResponse<T>>): T => {
+  return response.data.data;
+};
+
+export const projectsApi = {
+  getAll: async (): Promise<Project[]> => {
+    const response = await api.get<ApiResponse<Project[]>>('/projects');
+    return extractData(response);
+  },
+
+  getById: async (id: number): Promise<Project> => {
+    const response = await api.get<ApiResponse<Project>>(`/projects/${id}`);
+    return extractData(response);
+  },
+
+  create: async (project: Partial<Project>): Promise<Project> => {
+    const response = await api.post<ApiResponse<Project>>('/projects', project);
+    return extractData(response);
+  },
+
+  update: async (id: number, project: Partial<Project>): Promise<Project> => {
+    const response = await api.put<ApiResponse<Project>>(`/projects/${id}`, project);
+    return extractData(response);
+  },
+
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/projects/${id}`);
+  }
+};
+
+export const unionsApi = {
+  getAll: async (): Promise<MUnion[]> => {
+    const response = await api.get<ApiResponse<MUnion[]>>('/munions');
+    return extractData(response);
+  },
+
+  getById: async (id: number): Promise<MUnion> => {
+    const response = await api.get<ApiResponse<MUnion>>(`/munions/${id}`);
+    return extractData(response);
+  }
+};
+
+export const deviceApi = {
+  getStatus: async () => {
+    const response = await api.get<ApiResponse<{ status: string }>>('/devices/status');
+    return extractData(response);
+  },
+
+  reconnect: async (deviceId: number) => {
+    const response = await api.post<ApiResponse<{ success: boolean }>>(
+      `/devices/${deviceId}/reconnect`
+    );
+    return extractData(response);
+  },
+
+  getConfig: async (deviceId: number) => {
+    const response = await api.get<ApiResponse<any>>(`/devices/${deviceId}/config`);
+    return extractData(response);
+  },
+
+  updateConfig: async (deviceId: number, config: any) => {
+    const response = await api.put<ApiResponse<any>>(
+      `/devices/${deviceId}/config`,
+      config
+    );
+    return extractData(response);
+  }
+};
+
+export const authApi = {
+  login: async (username: string, password: string) => {
+    const response = await api.post<ApiResponse<{ token: string }>>(
+      '/auth/login',
+      { username, password }
+    );
+    return extractData(response);
+  },
+
+  logout: async () => {
+    await api.post('/auth/logout');
+  },
+
+  getProfile: async () => {
+    const response = await api.get<ApiResponse<{ username: string; role: string }>>(
+      '/auth/profile'
+    );
+    return extractData(response);
+  }
+};
+
+export default api;
+
+================================================================================
+File: frontend/src/types/index.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/types/index.ts
+
+// Tipos base para todos los servidores
+export interface ServerConfig {
+    id: string;
+    name: string;
+    type: 'caspar' | 'vmix' | 'atem';
+    host: string;
+    port: number;
+    status: 'connected' | 'disconnected' | 'error';
+    lastError?: string;
+  }
+  
+  // Tipos específicos para CasparCG
+  export interface CasparConfig extends ServerConfig {
+    type: 'caspar';
+    channels: number[];
+    amcpPort: number;
+    oscPort: number;
+  }
+  
+  // Tipos para estado del sistema
+  export interface SystemState {
+    servers: {
+      [key: string]: ServerConfig;
+    };
+    activeProject?: Project;
+    lastError?: string;
+    isConnected: boolean;
+  }
+  
+  // Tipos para WebSocket
+  export type WSMessageType = 
+    | 'DEVICE_COMMAND' 
+    | 'PROJECT_OPERATION' 
+    | 'STATE_UPDATE' 
+    | 'ERROR' 
+    | 'DEVICE_CONNECT';
+  
+  export interface WSMessage<T = unknown> {
+    type: WSMessageType;
+    payload: T;
+  }
+  
+  // Tipos para proyectos y eventos
+  export interface Project {
+    id: number;
+    name: string;
+    description?: string;
+    createdAt: string;
+    updatedAt: string;
+    events: MEvent[];
+  }
+  
+  export interface MEvent {
+    id: number;
+    title: string;
+    order: number;
+    projectId: number;
+    items: MItem[];
+    union?: MItemUnion;
+  }
+  
+  // Tipos base para items
+  export interface MItemBase {
+    id: number;
+    type: string;
+    position: {
+      row: number;
+      column: number;
+    };
+    union?: MItemUnion;
+  }
+  
+  // Tipos específicos para CasparCG
+  export interface MClipCaspar extends MItemBase {
+    type: 'mclip';
+    channel: number;
+    layer: number;
+    clipName: string;
+    videoPath: string;
+    loop?: boolean;
+  }
+  
+  export interface MGraphicsCaspar extends MItemBase {
+    type: 'mgraphics';
+    channel: number;
+    layer: number;
+    templateName: string;
+    templatePath: string;
+    data: Record<string, unknown>;
+  }
+  
+  export interface MPromptCaspar extends MItemBase {
+    type: 'mprompt';
+    channel: number;
+    layer: number;
+    text: string;
+  }
+  
+  // Tipo unión para todos los items
+  export type MItem = MClipCaspar | MGraphicsCaspar | MPromptCaspar;
+  
+  // Tipos para uniones
+  export interface MItemUnion {
+    id: number;
+    type: 'parallel' | 'sequential' | 'manual' | 'infinite';
+    position: number;
+    delay: number;
+  }
+  
+  // Tipos para comandos
+  export interface DeviceCommand {
+    deviceId: string;
+    command: string;
+    parameters: unknown[];
+  }
+  
+  export interface ProjectOperation {
+    type: 'create' | 'update' | 'delete';
+    projectId?: number;
+    data?: unknown;
+  }
+  
+  // Tipos para respuestas de error
+  export interface ErrorResponse {
+    message: string;
+    code?: string;
+    details?: unknown;
+  }
+  
+  // Type guards
+  export function isMClipCaspar(item: MItem): item is MClipCaspar {
+    return item.type === 'mclip';
+  }
+  
+  export function isMGraphicsCaspar(item: MItem): item is MGraphicsCaspar {
+    return item.type === 'mgraphics';
+  }
+  
+  export function isMPromptCaspar(item: MItem): item is MPromptCaspar {
+    return item.type === 'mprompt';
+  }
+  
+  // Tipos para estado de items
+  export type ItemState = 'playing' | 'stopped' | 'paused' | 'error';
+  
+  export interface ItemStatus {
+    id: number;
+    state: ItemState;
+    error?: string;
+    position?: number;
+    duration?: number;
+  }
+  
+  // Tipos para configuración de la aplicación
+  export interface AppConfig {
+    wsUrl: string;
+    apiUrl: string;
+    environment: 'development' | 'production';
+    debug: boolean;
+  }
+  
+  // Tipos para autenticación
+  export interface AuthState {
+    isAuthenticated: boolean;
+    user?: {
+      id: string;
+      name: string;
+      role: string;
+    };
+    token?: string;
+  }
+  
+  // Tipos para notificaciones
+  export interface Notification {
+    id: string;
+    type: 'info' | 'success' | 'warning' | 'error';
+    message: string;
+    duration?: number;
+  }
+
+================================================================================
+File: frontend/src/utils/errors.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/utils/errors.ts
+
+export class DeviceError extends Error {
+    deviceId: string;
+    deviceType: string;
+    code: string;
+
+    constructor(message: string, deviceId: string, deviceType: string, code: string) {
+        super(message);
+        this.name = 'DeviceError';
+        this.deviceId = deviceId;
+        this.deviceType = deviceType;
+        this.code = code;
+    }
+}
+
+export class ConnectionError extends DeviceError {
+    constructor(deviceId: string, deviceType: string, details?: string) {
+        super(
+            `Failed to connect to ${deviceType} device (${deviceId})${details ? ': ' + details : ''}`,
+            deviceId,
+            deviceType,
+            'CONNECTION_ERROR'
+        );
+        this.name = 'ConnectionError';
+    }
+}
+
+export class CommandError extends DeviceError {
+    command: string;
+    params?: Record<string, any>;
+
+    constructor(
+        command: string,
+        deviceId: string,
+        deviceType: string,
+        details?: string,
+        params?: Record<string, any>
+    ) {
+        super(
+            `Failed to execute command ${command} on ${deviceType} device (${deviceId})${details ? ': ' + details : ''}`,
+            deviceId,
+            deviceType,
+            'COMMAND_ERROR'
+        );
+        this.name = 'CommandError';
+        this.command = command;
+        this.params = params;
+    }
+}
+
+export class ValidationError extends Error {
+    field: string;
+    value: any;
+
+    constructor(message: string, field: string, value: any) {
+        super(message);
+        this.name = 'ValidationError';
+        this.field = field;
+        this.value = value;
+    }
+}
+
+export class WebSocketError extends Error {
+    code: number;
+
+    constructor(message: string, code: number) {
+        super(message);
+        this.name = 'WebSocketError';
+        this.code = code;
+    }
+}
+
+export const isDeviceError = (error: any): error is DeviceError => {
+    return error instanceof DeviceError;
+};
+
+export const isConnectionError = (error: any): error is ConnectionError => {
+    return error instanceof ConnectionError;
+};
+
+export const isCommandError = (error: any): error is CommandError => {
+    return error instanceof CommandError;
+};
+
+export const isValidationError = (error: any): error is ValidationError => {
+    return error instanceof ValidationError;
+};
+
+export const isWebSocketError = (error: any): error is WebSocketError => {
+    return error instanceof WebSocketError;
+};
+
+export const formatErrorMessage = (error: Error): string => {
+    if (isDeviceError(error)) {
+        return `Device Error (${error.deviceType}): ${error.message}`;
+    }
+    if (isValidationError(error)) {
+        return `Validation Error: ${error.message} (${error.field})`;
+    }
+    if (isWebSocketError(error)) {
+        return `WebSocket Error (${error.code}): ${error.message}`;
+    }
+    return error.message;
+};
+
+================================================================================
+File: frontend/src/utils/validation.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/utils/validation.ts
+
+import { ValidationError } from './errors';
+
+export interface ValidationRule<T> {
+    validate: (value: T) => boolean;
+    message: string;
+}
+
+export function validateRequired(value: any, fieldName: string): void {
+    if (value === undefined || value === null || value === '') {
+        throw new ValidationError(
+            `${fieldName} is required`,
+            fieldName,
+            value
+        );
+    }
+}
+
+export function validateNumber(value: any, fieldName: string, options: {
+    min?: number;
+    max?: number;
+    integer?: boolean;
+} = {}): void {
+    const num = Number(value);
+    
+    if (isNaN(num)) {
+        throw new ValidationError(
+            `${fieldName} must be a valid number`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.integer && !Number.isInteger(num)) {
+        throw new ValidationError(
+            `${fieldName} must be an integer`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.min !== undefined && num < options.min) {
+        throw new ValidationError(
+            `${fieldName} must be greater than or equal to ${options.min}`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.max !== undefined && num > options.max) {
+        throw new ValidationError(
+            `${fieldName} must be less than or equal to ${options.max}`,
+            fieldName,
+            value
+        );
+    }
+}
+
+export function validateString(value: any, fieldName: string, options: {
+    minLength?: number;
+    maxLength?: number;
+    pattern?: RegExp;
+} = {}): void {
+    if (typeof value !== 'string') {
+        throw new ValidationError(
+            `${fieldName} must be a string`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.minLength !== undefined && value.length < options.minLength) {
+        throw new ValidationError(
+            `${fieldName} must be at least ${options.minLength} characters long`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.maxLength !== undefined && value.length > options.maxLength) {
+        throw new ValidationError(
+            `${fieldName} must be no more than ${options.maxLength} characters long`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.pattern && !options.pattern.test(value)) {
+        throw new ValidationError(
+            `${fieldName} has an invalid format`,
+            fieldName,
+            value
+        );
+    }
+}
+
+export function validateUrl(value: string, fieldName: string): void {
+    try {
+        new URL(value);
+    } catch {
+        throw new ValidationError(
+            `${fieldName} must be a valid URL`,
+            fieldName,
+            value
+        );
+    }
+}
+
+export function validatePort(value: number, fieldName: string): void {
+    validateNumber(value, fieldName, {
+        min: 1,
+        max: 65535,
+        integer: true
+    });
+}
+
+export function validateIpAddress(value: string, fieldName: string): void {
+    const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    const ipv6Pattern = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
+
+    if (!ipv4Pattern.test(value) && !ipv6Pattern.test(value)) {
+        throw new ValidationError(
+            `${fieldName} must be a valid IP address`,
+            fieldName,
+            value
+        );
+    }
+
+    if (ipv4Pattern.test(value)) {
+        const parts = value.split('.').map(Number);
+        if (parts.some(part => part < 0 || part > 255)) {
+            throw new ValidationError(
+                `${fieldName} contains invalid IPv4 octets`,
+                fieldName,
+                value
+            );
+        }
+    }
+}
+
+export function validateEnum<T extends string>(
+    value: any,
+    fieldName: string,
+    validValues: T[]
+): asserts value is T {
+    if (!validValues.includes(value)) {
+        throw new ValidationError(
+            `${fieldName} must be one of: ${validValues.join(', ')}`,
+            fieldName,
+            value
+        );
+    }
+}
+
+export function validateArray<T>(
+    value: any,
+    fieldName: string,
+    itemValidator: (item: T, index: number) => void,
+    options: {
+        minLength?: number;
+        maxLength?: number;
+    } = {}
+): void {
+    if (!Array.isArray(value)) {
+        throw new ValidationError(
+            `${fieldName} must be an array`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.minLength !== undefined && value.length < options.minLength) {
+        throw new ValidationError(
+            `${fieldName} must contain at least ${options.minLength} items`,
+            fieldName,
+            value
+        );
+    }
+
+    if (options.maxLength !== undefined && value.length > options.maxLength) {
+        throw new ValidationError(
+            `${fieldName} must contain no more than ${options.maxLength} items`,
+            fieldName,
+            value
+        );
+    }
+
+    value.forEach((item, index) => {
+        try {
+            itemValidator(item, index);
+        } catch (error) {
+            if (error instanceof ValidationError) {
+                throw new ValidationError(
+                    `${fieldName}[${index}]: ${error.message}`,
+                    `${fieldName}[${index}]`,
+                    item
+                );
+            }
+            throw error;
+        }
+    });
+}

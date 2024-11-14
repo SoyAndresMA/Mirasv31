@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+      "target": "ES2020",
+      "module": "ESNext",
+      "moduleResolution": "bundler",
+      "esModuleInterop": true,
+      "forceConsistentCasingInFileNames": true,
+      "strict": true,
+      "skipLibCheck": true,
+      "outDir": "dist",
+      "rootDir": "src",
+      "baseUrl": "src",
+      "paths": {
+        "@/*": ["./*"],
+        "@core/*": ["./core/*"],
+        "@devices/*": ["./devices/*"],
+        "@websocket/*": ["./websocket/*"],
+        "@database/*": ["./database/*"],
+        "@types/*": ["./types/*"]
+      },
+      "types": ["node", "vitest/globals"],
+      "lib": ["ES2020"],
+      "sourceMap": true,
+      "declaration": true,
+      "resolveJsonModule": true,
+      "isolatedModules": true
+    },
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist", "**/*.test.ts"]
+   }

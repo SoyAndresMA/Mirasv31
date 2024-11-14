@@ -1,0 +1,4989 @@
+Este es mi proyecto. Memoriza el código y toda la información. Mas adelante te pediré modificaciones. Contesta siempre en español, con el código completo, y añadiendo en la primera linea del código la ruta del fichero. Dame los ficheros de código de uno en uno.
+No cambies nada sin que yo te lo pida o preguntando antes.
+
+Category: backend
+Description: Backend completo: servidor, APIs y base de datos
+Generated: 2024-11-14 11:38:25
+================================================================================
+
+Contents:
+--------------------------------------------------------------------------------
+- backend/src/config.ts
+- backend/src/core/CommandManager.ts
+- backend/src/core/ProjectManager.ts
+- backend/src/core/StateManager.ts
+- backend/src/core/errors.ts
+- backend/src/core/types.ts
+- backend/src/database/connection.ts
+- backend/src/database/migrations/001_initial_schema.sql
+- backend/src/database/models/Device.ts
+- backend/src/database/models/Event.ts
+- backend/src/database/models/Item.ts
+- backend/src/database/models/Project.ts
+- backend/src/database/models/index.ts
+- backend/src/devices/base/DeviceServer.ts
+- backend/src/devices/base/ServerManager.ts
+- backend/src/devices/base/errors.ts
+- backend/src/devices/base/types.ts
+- backend/src/devices/caspar/CasparConnection.ts
+- backend/src/devices/caspar/CasparServer.ts
+- backend/src/devices/caspar/CasparServerConfig.ts
+- backend/src/devices/caspar/items/MClip.ts
+- backend/src/devices/caspar/items/MGraphics.ts
+- backend/src/devices/caspar/items/MPrompt.ts
+- backend/src/devices/caspar/types.ts
+- backend/src/index.ts
+- backend/src/middleware/auth.ts
+- backend/src/routes/api.ts
+- backend/src/scripts/initDb.ts
+- backend/src/types/shared.ts
+- backend/src/websocket/WSConfig.ts
+- backend/src/websocket/WSServer.ts
+- backend/src/websocket/server.ts
+- backend/src/websocket/types.ts
+
+================================================================================
+
+
+================================================================================
+File: backend/src/config.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/config.ts
+
+import path from 'path';
+
+interface DeviceConfig {
+  id: string;
+  type: 'caspar' | 'vmix' | 'atem';
+  name: string;
+  host: string;
+  port: number;
+  enabled: boolean;
+  options?: Record<string, any>;
+}
+
+interface WebSocketConfig {
+  port: number;
+  heartbeatInterval: number;
+  reconnectTimeout: number;
+}
+
+interface DatabaseConfig {
+  path: string;
+  backupPath: string;
+  maxBackups: number;
+}
+
+interface LogConfig {
+  level: 'debug' | 'info' | 'warn' | 'error';
+  path: string;
+  maxFiles: number;
+  maxSize: string;
+}
+
+export interface Config {
+  env: string;
+  devices: DeviceConfig[];
+  websocket: WebSocketConfig;
+  database: DatabaseConfig;
+  logging: LogConfig;
+}
+
+const config: Config = {
+  env: process.env.NODE_ENV || 'development',
+  
+  devices: [
+    {
+      id: 'caspar1',
+      type: 'caspar',
+      name: 'CasparCG Main',
+      host: '127.0.0.1',
+      port: 5250,
+      enabled: true,
+      options: {
+        channels: [1, 2],
+        reconnectDelay: 5000,
+        osc: {
+          port: 6250
+        }
+      }
+    }
+  ],
+
+  websocket: {
+    port: parseInt(process.env.WS_PORT || '8080', 10),
+    heartbeatInterval: 30000,
+    reconnectTimeout: 5000
+  },
+
+  database: {
+    path: path.join(__dirname, '../database.sqlite'),
+    backupPath: path.join(__dirname, '../backups'),
+    maxBackups: 5
+  },
+
+  logging: {
+    level: (process.env.LOG_LEVEL || 'info') as 'debug' | 'info' | 'warn' | 'error',
+    path: path.join(__dirname, '../logs'),
+    maxFiles: 5,
+    maxSize: '10mb'
+  }
+};
+
+export { config };
+
+================================================================================
+File: backend/src/index.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/index.ts
+
+import { WSServer } from './websocket/WSServer';
+import { ProjectManager } from './core/ProjectManager';
+import { StateManager } from './core/StateManager';
+import { DeviceManager } from './core/DeviceManager';
+import { CommandManager } from './core/CommandManager';
+import { initDatabase } from './database/connection';
+import { config } from './config';
+
+async function startServer() {
+  try {
+    // Inicializar managers
+    const stateManager = new StateManager();
+    const deviceManager = new DeviceManager(config.devices);
+    const projectManager = new ProjectManager();
+    const commandManager = new CommandManager(deviceManager);
+
+    // Inicializar base de datos
+    await initDatabase();
+    
+    // Inicializar servidor WebSocket
+    const wsServer = new WSServer({
+      port: config.websocket.port,
+      stateManager,
+      deviceManager,
+      projectManager,
+      commandManager
+    });
+
+    // Conectar dispositivos configurados
+    await deviceManager.connectAll();
+
+    console.log(`Server running on ws://localhost:${config.websocket.port}`);
+    
+    // Manejadores de cierre
+    const cleanup = async () => {
+      console.log('Shutting down server...');
+      await deviceManager.disconnectAll();
+      await wsServer.close();
+      process.exit(0);
+    };
+
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
+
+================================================================================
+File: backend/src/core/CommandManager.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/core/CommandManager.ts
+
+import { EventEmitter } from 'events';
+import { DeviceManager } from './DeviceManager';
+import { ProjectManager } from './ProjectManager';
+import { StateManager } from './StateManager';
+
+export interface CommandContext {
+  deviceManager: DeviceManager;
+  projectManager: ProjectManager;
+  stateManager: StateManager;
+}
+
+export interface CommandResult {
+  success: boolean;
+  data?: any;
+  error?: string;
+}
+
+export interface CommandDefinition {
+  name: string;
+  description: string;
+  params?: {
+    [key: string]: {
+      type: 'string' | 'number' | 'boolean' | 'object';
+      required?: boolean;
+      description?: string;
+    }
+  };
+  handler: (params: any, context: CommandContext) => Promise<CommandResult>;
+}
+
+export class CommandManager extends EventEmitter {
+  private static instance: CommandManager;
+  private commands: Map<string, CommandDefinition>;
+  private context: CommandContext;
+
+  private constructor(context: CommandContext) {
+    super();
+    this.commands = new Map();
+    this.context = context;
+    this.registerBaseCommands();
+  }
+
+  public static getInstance(context: CommandContext): CommandManager {
+    if (!CommandManager.instance) {
+      CommandManager.instance = new CommandManager(context);
+    }
+    return CommandManager.instance;
+  }
+
+  public registerCommand(command: CommandDefinition): void {
+    if (this.commands.has(command.name)) {
+      throw new Error(`Command ${command.name} already registered`);
+    }
+    this.commands.set(command.name, command);
+  }
+
+  public async executeCommand(name: string, params: any = {}): Promise<CommandResult> {
+    const command = this.commands.get(name);
+    if (!command) {
+      return {
+        success: false,
+        error: `Command ${name} not found`
+      };
+    }
+
+    try {
+      // Validar parámetros
+      this.validateParams(command, params);
+
+      // Ejecutar comando
+      const result = await command.handler(params, this.context);
+
+      // Emitir evento de comando ejecutado
+      this.emit('commandExecuted', {
+        command: name,
+        params,
+        result
+      });
+
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Emitir evento de error
+      this.emit('commandError', {
+        command: name,
+        params,
+        error: errorMessage
+      });
+
+      return {
+        success: false,
+        error: errorMessage
+      };
+    }
+  }
+
+  private validateParams(command: CommandDefinition, params: any): void {
+    if (!command.params) return;
+
+    for (const [paramName, paramDef] of Object.entries(command.params)) {
+      // Verificar parámetros requeridos
+      if (paramDef.required && !(paramName in params)) {
+        throw new Error(`Required parameter ${paramName} missing`);
+      }
+
+      // Verificar tipos
+      if (paramName in params) {
+        const value = params[paramName];
+        const actualType = typeof value;
+        if (actualType !== paramDef.type) {
+          throw new Error(
+            `Invalid type for parameter ${paramName}. Expected ${paramDef.type}, got ${actualType}`
+          );
+        }
+      }
+    }
+  }
+
+  private registerBaseCommands(): void {
+    // Comandos de dispositivos
+    this.registerCommand({
+      name: 'connectDevice',
+      description: 'Conecta un dispositivo específico',
+      params: {
+        deviceId: {
+          type: 'number',
+          required: true,
+          description: 'ID del dispositivo'
+        }
+      },
+      handler: async (params, context) => {
+        const device = context.deviceManager.getDevice(params.deviceId);
+        if (!device) {
+          return { success: false, error: 'Device not found' };
+        }
+        await device.connect();
+        return { success: true };
+      }
+    });
+
+    this.registerCommand({
+      name: 'disconnectDevice',
+      description: 'Desconecta un dispositivo específico',
+      params: {
+        deviceId: {
+          type: 'number',
+          required: true,
+          description: 'ID del dispositivo'
+        }
+      },
+      handler: async (params, context) => {
+        const device = context.deviceManager.getDevice(params.deviceId);
+        if (!device) {
+          return { success: false, error: 'Device not found' };
+        }
+        await device.disconnect();
+        return { success: true };
+      }
+    });
+
+    // Comandos de proyecto
+    this.registerCommand({
+      name: 'saveProject',
+      description: 'Guarda el proyecto actual',
+      handler: async (_, context) => {
+        await context.projectManager.saveProject();
+        return { success: true };
+      }
+    });
+
+    this.registerCommand({
+      name: 'closeProject',
+      description: 'Cierra el proyecto actual',
+      handler: async (_, context) => {
+        await context.projectManager.closeProject();
+        return { success: true };
+      }
+    });
+
+    // Comandos de estado
+    this.registerCommand({
+      name: 'getSystemState',
+      description: 'Obtiene el estado actual del sistema',
+      handler: async (_, context) => {
+        const state = context.stateManager.getState();
+        return { 
+          success: true,
+          data: state
+        };
+      }
+    });
+  }
+
+  public getCommands(): Map<string, CommandDefinition> {
+    return new Map(this.commands);
+  }
+
+  public getCommandDefinition(name: string): CommandDefinition | undefined {
+    return this.commands.get(name);
+  }
+
+  public getCommandList(): Array<{ name: string; description: string }> {
+    return Array.from(this.commands.values()).map(cmd => ({
+      name: cmd.name,
+      description: cmd.description
+    }));
+  }
+}
+
+================================================================================
+File: backend/src/core/errors.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/core/errors.ts
+
+export class CoreError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'CoreError';
+    }
+   }
+   
+   export class DatabaseError extends CoreError {
+    constructor(operation: string, message: string, cause?: Error) {
+      super(`Database error during ${operation}: ${message}`);
+      this.name = 'DatabaseError';
+      this.cause = cause;
+    }
+   }
+   
+   export class ProjectError extends CoreError {
+    constructor(projectId: number, message: string) {
+      super(`Project ${projectId}: ${message}`);
+      this.name = 'ProjectError';
+    }
+   }
+   
+   export class StateError extends CoreError {
+    constructor(message: string, state?: unknown) {
+      super(`State error: ${message}${state ? ` (current state: ${JSON.stringify(state)})` : ''}`);
+      this.name = 'StateError';
+    }
+   }
+   
+   export class WebSocketError extends CoreError {
+    constructor(message: string, code?: number) {
+      super(`WebSocket error${code ? ` (${code})` : ''}: ${message}`);
+      this.name = 'WebSocketError';
+    }
+   }
+   
+   export class ValidationError extends CoreError {
+    constructor(message: string, data?: unknown) {
+      super(`Validation error: ${message}${data ? ` (data: ${JSON.stringify(data)})` : ''}`);
+      this.name = 'ValidationError';
+    }
+   }
+   
+   export class AuthenticationError extends CoreError {
+    constructor(message: string) {
+      super(`Authentication error: ${message}`);
+      this.name = 'AuthenticationError';
+    }
+   }
+   
+   export class CommandError extends CoreError {
+    constructor(command: string, message: string) {
+      super(`Command "${command}" error: ${message}`);
+      this.name = 'CommandError';
+    }
+   }
+   
+   export class DeviceManagerError extends CoreError {
+    constructor(message: string) {
+      super(`Device manager error: ${message}`);
+      this.name = 'DeviceManagerError';
+    }
+   }
+   
+   export class ProjectManagerError extends CoreError {
+    constructor(message: string) {
+      super(`Project manager error: ${message}`);
+      this.name = 'ProjectManagerError';
+    }
+   }
+   
+   export class StateManagerError extends CoreError {
+    constructor(message: string) {
+      super(`State manager error: ${message}`);
+      this.name = 'StateManagerError';
+    }
+   }
+   
+   export class CommandManagerError extends CoreError {
+    constructor(message: string) {
+      super(`Command manager error: ${message}`);
+      this.name = 'CommandManagerError';
+    }
+   }
+
+================================================================================
+File: backend/src/core/ProjectManager.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/core/ProjectManager.ts
+
+import { EventEmitter } from 'events';
+import { Database } from '../database/connection';
+import { Project, Event, Item } from '../database/models';
+
+export enum ProjectManagerEvent {
+  PROJECT_LOADED = 'projectLoaded',
+  PROJECT_SAVED = 'projectSaved',
+  PROJECT_CLOSED = 'projectClosed',
+  EVENT_ADDED = 'eventAdded',
+  EVENT_REMOVED = 'eventRemoved',
+  EVENT_UPDATED = 'eventUpdated',
+  ITEM_ADDED = 'itemAdded',
+  ITEM_REMOVED = 'itemRemoved',
+  ITEM_UPDATED = 'itemUpdated',
+  ERROR = 'error'
+}
+
+export class ProjectManager extends EventEmitter {
+  private static instance: ProjectManager;
+  private currentProject: Project | null = null;
+  private readonly db: Database;
+  private modifiedEvents: Set<number> = new Set();
+  private modifiedItems: Set<number> = new Set();
+
+  private constructor(db: Database) {
+    super();
+    this.db = db;
+  }
+
+  public static getInstance(db: Database): ProjectManager {
+    if (!ProjectManager.instance) {
+      ProjectManager.instance = new ProjectManager(db);
+    }
+    return ProjectManager.instance;
+  }
+
+  public async loadProject(projectId: number): Promise<Project> {
+    try {
+      // Cerrar proyecto actual si existe
+      if (this.currentProject) {
+        await this.closeProject();
+      }
+
+      // Cargar nuevo proyecto con eventos e items
+      const project = await this.db.getProjectWithDetails(projectId);
+      if (!project) {
+        throw new Error(`Project ${projectId} not found`);
+      }
+
+      this.currentProject = project;
+      this.emit(ProjectManagerEvent.PROJECT_LOADED, project);
+      
+      return project;
+    } catch (error) {
+      this.emit(ProjectManagerEvent.ERROR, error);
+      throw error;
+    }
+  }
+
+  public async saveProject(): Promise<void> {
+    if (!this.currentProject) {
+      throw new Error('No project currently loaded');
+    }
+
+    try {
+      await this.db.transaction(async () => {
+        // Guardar eventos modificados
+        for (const eventId of this.modifiedEvents) {
+          const event = this.currentProject?.events.find(e => e.id === eventId);
+          if (event) {
+            await this.db.updateEvent(event);
+          }
+        }
+
+        // Guardar items modificados
+        for (const itemId of this.modifiedItems) {
+          const item = this.findItemById(itemId);
+          if (item) {
+            await this.db.updateItem(item);
+          }
+        }
+
+        // Actualizar timestamp del proyecto
+        await this.db.updateProject({
+          ...this.currentProject,
+          modification_date: new Date()
+        });
+      });
+
+      this.modifiedEvents.clear();
+      this.modifiedItems.clear();
+      
+      this.emit(ProjectManagerEvent.PROJECT_SAVED, this.currentProject);
+    } catch (error) {
+      this.emit(ProjectManagerEvent.ERROR, error);
+      throw error;
+    }
+  }
+
+  public async closeProject(): Promise<void> {
+    if (!this.currentProject) {
+      return;
+    }
+
+    // Verificar cambios pendientes
+    if (this.hasUnsavedChanges()) {
+      throw new Error('Project has unsaved changes');
+    }
+
+    this.currentProject = null;
+    this.modifiedEvents.clear();
+    this.modifiedItems.clear();
+    
+    this.emit(ProjectManagerEvent.PROJECT_CLOSED);
+  }
+
+  public async updateEvent(eventId: number, updates: Partial<Event>): Promise<void> {
+    const event = this.currentProject?.events.find(e => e.id === eventId);
+    if (!event) {
+      throw new Error(`Event ${eventId} not found`);
+    }
+
+    Object.assign(event, updates);
+    this.modifiedEvents.add(eventId);
+    
+    this.emit(ProjectManagerEvent.EVENT_UPDATED, event);
+  }
+
+  public async updateItem(itemId: number, updates: Partial<Item>): Promise<void> {
+    const item = this.findItemById(itemId);
+    if (!item) {
+      throw new Error(`Item ${itemId} not found`);
+    }
+
+    Object.assign(item, updates);
+    this.modifiedItems.add(itemId);
+    
+    this.emit(ProjectManagerEvent.ITEM_UPDATED, item);
+  }
+
+  public getCurrentProject(): Project | null {
+    return this.currentProject;
+  }
+
+  public hasUnsavedChanges(): boolean {
+    return this.modifiedEvents.size > 0 || this.modifiedItems.size > 0;
+  }
+
+  private findItemById(itemId: number): Item | undefined {
+    for (const event of this.currentProject?.events || []) {
+      const item = event.items.find(i => i.id === itemId);
+      if (item) return item;
+    }
+    return undefined;
+  }
+}
+
+================================================================================
+File: backend/src/core/StateManager.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/core/StateManager.ts
+
+import { EventEmitter } from 'events';
+import { DeviceServer } from '../devices/base/DeviceServer';
+import { DeviceState, DeviceStatus } from '../devices/base/types';
+import { ProjectManager, ProjectManagerEvent } from './ProjectManager';
+
+export interface SystemState {
+  activeProject: number | null;
+  devices: Map<number, DeviceState>;
+  connectedClients: number;
+  lastUpdate: Date;
+}
+
+export enum StateManagerEvent {
+  STATE_UPDATED = 'stateUpdated',
+  DEVICE_UPDATED = 'deviceUpdated',
+  CLIENT_CONNECTED = 'clientConnected',
+  CLIENT_DISCONNECTED = 'clientDisconnected',
+  ERROR = 'error'
+}
+
+export class StateManager extends EventEmitter {
+  private static instance: StateManager;
+  private state: SystemState;
+  private devices: Map<number, DeviceServer>;
+  private projectManager: ProjectManager;
+
+  private constructor(projectManager: ProjectManager) {
+    super();
+    this.projectManager = projectManager;
+    this.devices = new Map();
+    this.state = {
+      activeProject: null,
+      devices: new Map(),
+      connectedClients: 0,
+      lastUpdate: new Date()
+    };
+
+    this.setupProjectManagerListeners();
+  }
+
+  public static getInstance(projectManager: ProjectManager): StateManager {
+    if (!StateManager.instance) {
+      StateManager.instance = new StateManager(projectManager);
+    }
+    return StateManager.instance;
+  }
+
+  public getState(): SystemState {
+    return {
+      ...this.state,
+      devices: new Map(this.state.devices),
+      lastUpdate: new Date(this.state.lastUpdate)
+    };
+  }
+
+  public registerDevice(device: DeviceServer): void {
+    this.devices.set(device.getState().id, device);
+    this.state.devices.set(device.getState().id, device.getState());
+    
+    device.on('stateChange', (deviceState: DeviceState) => {
+      this.updateDeviceState(deviceState);
+    });
+
+    this.updateState();
+  }
+
+  public unregisterDevice(deviceId: number): void {
+    this.devices.delete(deviceId);
+    this.state.devices.delete(deviceId);
+    this.updateState();
+  }
+
+  public getDevice(deviceId: number): DeviceServer | undefined {
+    return this.devices.get(deviceId);
+  }
+
+  public getDeviceState(deviceId: number): DeviceState | undefined {
+    return this.state.devices.get(deviceId);
+  }
+
+  public clientConnected(): void {
+    this.state.connectedClients++;
+    this.emit(StateManagerEvent.CLIENT_CONNECTED, this.state.connectedClients);
+    this.updateState();
+  }
+
+  public clientDisconnected(): void {
+    this.state.connectedClients--;
+    this.emit(StateManagerEvent.CLIENT_DISCONNECTED, this.state.connectedClients);
+    this.updateState();
+  }
+
+  private updateDeviceState(deviceState: DeviceState): void {
+    this.state.devices.set(deviceState.id, deviceState);
+    this.emit(StateManagerEvent.DEVICE_UPDATED, deviceState);
+    this.updateState();
+  }
+
+  private updateState(): void {
+    this.state.lastUpdate = new Date();
+    this.emit(StateManagerEvent.STATE_UPDATED, this.getState());
+  }
+
+  public async connectAllDevices(): Promise<void> {
+    const connectionPromises = Array.from(this.devices.values()).map(device => {
+      return device.connect().catch(error => {
+        this.emit(StateManagerEvent.ERROR, {
+          deviceId: device.getState().id,
+          error
+        });
+      });
+    });
+
+    await Promise.all(connectionPromises);
+  }
+
+  public async disconnectAllDevices(): Promise<void> {
+    const disconnectionPromises = Array.from(this.devices.values()).map(device => {
+      return device.disconnect().catch(error => {
+        this.emit(StateManagerEvent.ERROR, {
+          deviceId: device.getState().id,
+          error
+        });
+      });
+    });
+
+    await Promise.all(disconnectionPromises);
+  }
+
+  private setupProjectManagerListeners(): void {
+    this.projectManager.on(ProjectManagerEvent.PROJECT_LOADED, (project) => {
+      this.state.activeProject = project.id;
+      this.updateState();
+    });
+
+    this.projectManager.on(ProjectManagerEvent.PROJECT_CLOSED, () => {
+      this.state.activeProject = null;
+      this.updateState();
+    });
+  }
+
+  public async shutdown(): Promise<void> {
+    await this.disconnectAllDevices();
+    this.removeAllListeners();
+    StateManager.instance = undefined as any;
+  }
+}
+
+================================================================================
+File: backend/src/core/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/core/types.ts
+
+import { DeviceType, DeviceStatus, DeviceCommand } from '../devices/base/types';
+import { WebSocketMessage } from '../websocket/types';
+
+// System State Types
+export interface SystemState {
+ devices: Record<string, DeviceState>;
+ projects: Record<number, ProjectState>;
+ connections: Record<string, ConnectionState>;
+}
+
+export interface DeviceState {
+ id: string;
+ type: DeviceType;
+ status: DeviceStatus;
+ lastError?: string;
+ lastCommand?: DeviceCommand;
+ lastUpdate: number;
+}
+
+export interface ProjectState {
+ id: number;
+ name: string;
+ events: Record<number, EventState>;
+ isActive: boolean;
+ activeEventId?: number;
+}
+
+export interface EventState {
+ id: number;
+ name: string;
+ items: Record<number, ItemState>;
+ isActive: boolean;
+ activeItemIds: number[];
+}
+
+export interface ItemState {
+ id: number;
+ type: string;
+ status: 'idle' | 'playing' | 'error';
+ lastError?: string;
+ deviceId: string;
+ unionId?: number;
+}
+
+export interface ConnectionState {
+ id: string;
+ clientId: string;
+ connected: boolean;
+ lastMessage?: WebSocketMessage;
+ lastPing: number;
+}
+
+// Manager Types
+export interface ManagerConfig {
+ debug?: boolean;
+ logLevel?: 'error' | 'warn' | 'info' | 'debug';
+}
+
+export interface ProjectConfig {
+ name: string;
+ description?: string;
+ devices: string[];
+}
+
+// Command Types
+export interface Command {
+ id: string;
+ type: CommandType;
+ target: CommandTarget;
+ data: unknown;
+ timestamp: number;
+ status: CommandStatus;
+ error?: string;
+}
+
+export type CommandType = 
+ | 'DEVICE_CONNECT'
+ | 'DEVICE_DISCONNECT'
+ | 'DEVICE_COMMAND'
+ | 'PROJECT_LOAD'
+ | 'PROJECT_SAVE'
+ | 'EVENT_START'
+ | 'EVENT_STOP'
+ | 'ITEM_START'
+ | 'ITEM_STOP';
+
+export interface CommandTarget {
+ type: 'device' | 'project' | 'event' | 'item';
+ id: string | number;
+}
+
+export type CommandStatus = 'pending' | 'executing' | 'completed' | 'failed';
+
+// Event Types
+export interface SystemEvent {
+ type: SystemEventType;
+ timestamp: number;
+ data: unknown;
+}
+
+export type SystemEventType = 
+ | 'DEVICE_STATUS_CHANGE'
+ | 'PROJECT_STATE_CHANGE'
+ | 'CONNECTION_STATE_CHANGE'
+ | 'COMMAND_STATUS_CHANGE'
+ | 'ERROR';
+
+// Validation Types
+export interface ValidationResult {
+ valid: boolean;
+ errors?: string[];
+}
+
+// Utility Types
+export type Listener<T> = (data: T) => void;
+export type UnsubscribeFn = () => void;
+
+export interface Logger {
+ error: (message: string, ...args: unknown[]) => void;
+ warn: (message: string, ...args: unknown[]) => void;
+ info: (message: string, ...args: unknown[]) => void;
+ debug: (message: string, ...args: unknown[]) => void;
+}
+
+================================================================================
+File: backend/src/database/connection.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/database/connection.ts
+
+import sqlite3 from 'sqlite3';
+import { open, Database } from 'sqlite';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+class DatabaseConnection {
+    private static instance: DatabaseConnection;
+    private db: Database | null = null;
+    private readonly dbPath: string;
+
+    private constructor() {
+        this.dbPath = join(__dirname, '../../database.sqlite');
+    }
+
+    public static getInstance(): DatabaseConnection {
+        if (!DatabaseConnection.instance) {
+            DatabaseConnection.instance = new DatabaseConnection();
+        }
+        return DatabaseConnection.instance;
+    }
+
+    public async connect(): Promise<Database> {
+        if (this.db) return this.db;
+
+        try {
+            this.db = await open({
+                filename: this.dbPath,
+                driver: sqlite3.Database
+            });
+
+            // Habilitar claves foráneas
+            await this.db.run('PRAGMA foreign_keys = ON');
+
+            console.log('Conexión a base de datos establecida');
+            return this.db;
+        } catch (error) {
+            console.error('Error conectando a la base de datos:', error);
+            throw error;
+        }
+    }
+
+    public async runMigrations(): Promise<void> {
+        if (!this.db) throw new Error('Database not connected');
+
+        try {
+            const migrationPath = join(__dirname, 'migrations');
+            // Aquí implementaremos la lógica para ejecutar las migraciones
+            // en orden según sus números de versión
+            console.log('Migraciones completadas');
+        } catch (error) {
+            console.error('Error ejecutando migraciones:', error);
+            throw error;
+        }
+    }
+
+    public getDatabase(): Database {
+        if (!this.db) {
+            throw new Error('Database not connected');
+        }
+        return this.db;
+    }
+
+    public async close(): Promise<void> {
+        if (this.db) {
+            await this.db.close();
+            this.db = null;
+        }
+    }
+}
+
+export default DatabaseConnection;
+
+================================================================================
+File: backend/src/database/migrations/001_initial_schema.sql
+--------------------------------------------------------------------------------
+-- Ruta del fichero: /backend/src/database/migrations/001_initial_schema.sql
+
+-- Habilitar claves foráneas
+PRAGMA foreign_keys = ON;
+
+-- Tabla de servidores de dispositivos
+CREATE TABLE IF NOT EXISTS device_servers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('caspar', 'vmix', 'atem')),
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    config_json TEXT,
+    active BOOLEAN DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de proyectos
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    active BOOLEAN DEFAULT 1
+);
+
+-- Tabla de eventos
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    event_order INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE(project_id, event_order)
+);
+
+-- Tabla de tipos de items
+CREATE TABLE IF NOT EXISTS item_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    device_type TEXT NOT NULL,
+    properties_schema TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de items base
+CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    type_id INTEGER NOT NULL,
+    device_server_id INTEGER NOT NULL,
+    position_row INTEGER NOT NULL,
+    position_column INTEGER NOT NULL CHECK (position_column BETWEEN 1 AND 3),
+    config_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (type_id) REFERENCES item_types(id),
+    FOREIGN KEY (device_server_id) REFERENCES device_servers(id),
+    UNIQUE(event_id, position_row, position_column)
+);
+
+-- Tabla de uniones
+CREATE TABLE IF NOT EXISTS unions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    icon TEXT NOT NULL,
+    properties_schema TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de relación items-uniones
+CREATE TABLE IF NOT EXISTS item_unions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    union_id INTEGER NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    delay DECIMAL(10,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (union_id) REFERENCES unions(id) ON DELETE CASCADE
+);
+
+-- Tabla de estado del sistema
+CREATE TABLE IF NOT EXISTS system_state (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    component_type TEXT NOT NULL,
+    component_id INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    details_json TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(component_type, component_id)
+);
+
+-- Índices para optimizar consultas
+CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id);
+CREATE INDEX IF NOT EXISTS idx_items_event ON items(event_id);
+CREATE INDEX IF NOT EXISTS idx_items_type ON items(type_id);
+CREATE INDEX IF NOT EXISTS idx_items_device ON items(device_server_id);
+CREATE INDEX IF NOT EXISTS idx_item_unions_item ON item_unions(item_id);
+CREATE INDEX IF NOT EXISTS idx_system_state_component ON system_state(component_type, component_id);
+
+-- Trigger para actualizar updated_at en proyectos
+CREATE TRIGGER IF NOT EXISTS update_projects_timestamp 
+AFTER UPDATE ON projects
+BEGIN
+    UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+-- Trigger para actualizar updated_at en eventos
+CREATE TRIGGER IF NOT EXISTS update_events_timestamp 
+AFTER UPDATE ON events
+BEGIN
+    UPDATE events SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+-- Trigger para actualizar updated_at en items
+CREATE TRIGGER IF NOT EXISTS update_items_timestamp 
+AFTER UPDATE ON items
+BEGIN
+    UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+================================================================================
+File: backend/src/database/models/Device.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/database/models/Device.ts
+
+import DatabaseConnection from '../connection';
+import { BaseModel } from './index';
+
+export interface Device extends BaseModel {
+    name: string;
+    type: 'caspar' | 'vmix' | 'atem';
+    host: string;
+    port: number;
+    config_json?: string;
+    active: boolean;
+}
+
+export interface DeviceConfig {
+    // Configuración común
+    reconnectAttempts?: number;
+    reconnectInterval?: number;
+    timeout?: number;
+
+    // Configuración específica por tipo
+    caspar?: {
+        channels: number[];
+        clearOnConnect?: boolean;
+    };
+    vmix?: {
+        protocol: 'tcp' | 'http';
+        preview?: boolean;
+    };
+    atem?: {
+        mixEffects: number[];
+        audioMonitoring?: boolean;
+    };
+}
+
+export interface CreateDeviceData {
+    name: string;
+    type: Device['type'];
+    host: string;
+    port: number;
+    config?: DeviceConfig;
+}
+
+export interface UpdateDeviceData {
+    name?: string;
+    host?: string;
+    port?: number;
+    config?: Partial<DeviceConfig>;
+    active?: boolean;
+}
+
+class DeviceModel {
+    private static instance: DeviceModel;
+    private db = DatabaseConnection.getInstance();
+
+    private constructor() {}
+
+    public static getInstance(): DeviceModel {
+        if (!DeviceModel.instance) {
+            DeviceModel.instance = new DeviceModel();
+        }
+        return DeviceModel.instance;
+    }
+
+    async create(data: CreateDeviceData): Promise<Device> {
+        const db = await this.db.connect();
+        
+        try {
+            const result = await db.run(
+                `INSERT INTO device_servers (name, type, host, port, config_json) 
+                 VALUES (?, ?, ?, ?, ?)`,
+                [
+                    data.name,
+                    data.type,
+                    data.host,
+                    data.port,
+                    data.config ? JSON.stringify(data.config) : null
+                ]
+            );
+
+            if (!result.lastID) throw new Error('Error creating device');
+
+            return this.getById(result.lastID);
+        } catch (error) {
+            console.error('Error in create device:', error);
+            throw error;
+        }
+    }
+
+    async getById(id: number): Promise<Device> {
+        const db = await this.db.connect();
+        
+        try {
+            const device = await db.get<Device>(
+                'SELECT * FROM device_servers WHERE id = ?',
+                id
+            );
+
+            if (!device) throw new Error('Device not found');
+
+            return device;
+        } catch (error) {
+            console.error('Error in getById device:', error);
+            throw error;
+        }
+    }
+
+    async getByType(type: Device['type']): Promise<Device[]> {
+        const db = await this.db.connect();
+        
+        try {
+            return db.all<Device>(
+                'SELECT * FROM device_servers WHERE type = ? AND active = 1',
+                type
+            );
+        } catch (error) {
+            console.error('Error in getByType device:', error);
+            throw error;
+        }
+    }
+
+    async update(id: number, data: UpdateDeviceData): Promise<Device> {
+        const db = await this.db.connect();
+        
+        try {
+            const updates: string[] = [];
+            const values: any[] = [];
+
+            Object.entries(data).forEach(([key, value]) => {
+                if (value !== undefined) {
+                    if (key === 'config') {
+                        updates.push('config_json = ?');
+                        values.push(JSON.stringify(value));
+                    } else {
+                        updates.push(`${key} = ?`);
+                        values.push(value);
+                    }
+                }
+            });
+
+            if (updates.length === 0) {
+                return this.getById(id);
+            }
+
+            values.push(id);
+
+            await db.run(
+                `UPDATE device_servers 
+                 SET ${updates.join(', ')} 
+                 WHERE id = ?`,
+                values
+            );
+
+            return this.getById(id);
+        } catch (error) {
+            console.error('Error in update device:', error);
+            throw error;
+        }
+    }
+
+    async delete(id: number): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            const result = await db.run(
+                'DELETE FROM device_servers WHERE id = ?',
+                id
+            );
+
+            if (result.changes === 0) {
+                throw new Error('Device not found');
+            }
+        } catch (error) {
+            console.error('Error in delete device:', error);
+            throw error;
+        }
+    }
+
+    async getDeviceConfig<T extends keyof DeviceConfig>(
+        id: number,
+        type: T
+    ): Promise<DeviceConfig[T] | null> {
+        const device = await this.getById(id);
+        if (!device.config_json) return null;
+
+        const config = JSON.parse(device.config_json) as DeviceConfig;
+        return config[type] || null;
+    }
+
+    async setDeviceConfig<T extends keyof DeviceConfig>(
+        id: number,
+        type: T,
+        config: DeviceConfig[T]
+    ): Promise<Device> {
+        const device = await this.getById(id);
+        const currentConfig = device.config_json ? 
+            JSON.parse(device.config_json) as DeviceConfig : 
+            {};
+
+        return this.update(id, {
+            config: {
+                ...currentConfig,
+                [type]: config
+            }
+        });
+    }
+}
+
+export default DeviceModel;
+
+================================================================================
+File: backend/src/database/models/Event.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/database/models/Event.ts
+
+import DatabaseConnection from '../connection';
+import { BaseModel } from './index';
+import Item from './Item';
+
+export interface Event extends BaseModel {
+    project_id: number;
+    title: string;
+    event_order: number;
+    items?: Item[];
+}
+
+export interface CreateEventData {
+    project_id: number;
+    title: string;
+    event_order?: number;
+}
+
+export interface UpdateEventData {
+    title?: string;
+    event_order?: number;
+}
+
+class EventModel {
+    private static instance: EventModel;
+    private db = DatabaseConnection.getInstance();
+
+    private constructor() {}
+
+    public static getInstance(): EventModel {
+        if (!EventModel.instance) {
+            EventModel.instance = new EventModel();
+        }
+        return EventModel.instance;
+    }
+
+    async create(data: CreateEventData): Promise<Event> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run('BEGIN TRANSACTION');
+
+            // Si no se proporciona order, obtener el siguiente
+            if (!data.event_order) {
+                const maxOrder = await db.get<{ max_order: number }>(
+                    `SELECT MAX(event_order) as max_order 
+                     FROM events 
+                     WHERE project_id = ?`,
+                    data.project_id
+                );
+                data.event_order = (maxOrder?.max_order || 0) + 1;
+            }
+
+            // Verificar si hay que reordenar eventos existentes
+            await db.run(
+                `UPDATE events 
+                 SET event_order = event_order + 1 
+                 WHERE project_id = ? AND event_order >= ?`,
+                [data.project_id, data.event_order]
+            );
+
+            const result = await db.run(
+                `INSERT INTO events (project_id, title, event_order) 
+                 VALUES (?, ?, ?)`,
+                [data.project_id, data.title, data.event_order]
+            );
+
+            await db.run('COMMIT');
+
+            if (!result.lastID) throw new Error('Error creating event');
+
+            return this.getById(result.lastID);
+        } catch (error) {
+            await db.run('ROLLBACK');
+            console.error('Error in create event:', error);
+            throw error;
+        }
+    }
+
+    async getById(id: number, includeItems: boolean = false): Promise<Event> {
+        const db = await this.db.connect();
+        
+        try {
+            const event = await db.get<Event>(
+                'SELECT * FROM events WHERE id = ?',
+                id
+            );
+
+            if (!event) throw new Error('Event not found');
+
+            if (includeItems) {
+                const ItemModel = (await import('./Item')).default;
+                event.items = await ItemModel.getInstance().getByEventId(id);
+            }
+
+            return event;
+        } catch (error) {
+            console.error('Error in getById event:', error);
+            throw error;
+        }
+    }
+
+    async update(id: number, data: UpdateEventData): Promise<Event> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run('BEGIN TRANSACTION');
+
+            const event = await this.getById(id);
+
+            if (data.event_order && data.event_order !== event.event_order) {
+                // Reordenar eventos si el orden cambió
+                if (data.event_order > event.event_order) {
+                    await db.run(
+                        `UPDATE events 
+                         SET event_order = event_order - 1 
+                         WHERE project_id = ? 
+                         AND event_order > ? 
+                         AND event_order <= ?`,
+                        [event.project_id, event.event_order, data.event_order]
+                    );
+                } else {
+                    await db.run(
+                        `UPDATE events 
+                         SET event_order = event_order + 1 
+                         WHERE project_id = ? 
+                         AND event_order >= ? 
+                         AND event_order < ?`,
+                        [event.project_id, data.event_order, event.event_order]
+                    );
+                }
+            }
+
+            const updates: string[] = [];
+            const values: any[] = [];
+
+            Object.entries(data).forEach(([key, value]) => {
+                if (value !== undefined) {
+                    updates.push(`${key} = ?`);
+                    values.push(value);
+                }
+            });
+
+            if (updates.length > 0) {
+                values.push(id);
+                await db.run(
+                    `UPDATE events 
+                     SET ${updates.join(', ')} 
+                     WHERE id = ?`,
+                    values
+                );
+            }
+
+            await db.run('COMMIT');
+            return this.getById(id);
+        } catch (error) {
+            await db.run('ROLLBACK');
+            console.error('Error in update event:', error);
+            throw error;
+        }
+    }
+
+    async delete(id: number): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run('BEGIN TRANSACTION');
+
+            const event = await this.getById(id);
+
+            // Eliminar el evento
+            const result = await db.run(
+                'DELETE FROM events WHERE id = ?',
+                id
+            );
+
+            if (result.changes === 0) {
+                throw new Error('Event not found');
+            }
+
+            // Reordenar eventos restantes
+            await db.run(
+                `UPDATE events 
+                 SET event_order = event_order - 1 
+                 WHERE project_id = ? AND event_order > ?`,
+                [event.project_id, event.event_order]
+            );
+
+            await db.run('COMMIT');
+        } catch (error) {
+            await db.run('ROLLBACK');
+            console.error('Error in delete event:', error);
+            throw error;
+        }
+    }
+
+    async getByProjectId(projectId: number, includeItems: boolean = false): Promise<Event[]> {
+        const db = await this.db.connect();
+        
+        try {
+            const events = await db.all<Event>(
+                `SELECT * FROM events 
+                 WHERE project_id = ? 
+                 ORDER BY event_order`,
+                projectId
+            );
+
+            if (includeItems && events.length > 0) {
+                const ItemModel = (await import('./Item')).default;
+                for (const event of events) {
+                    event.items = await ItemModel.getInstance().getByEventId(event.id);
+                }
+            }
+
+            return events;
+        } catch (error) {
+            console.error('Error in getByProjectId:', error);
+            throw error;
+        }
+    }
+
+    async reorderEvents(projectId: number, eventOrders: { id: number, order: number }[]): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run('BEGIN TRANSACTION');
+
+            for (const { id, order } of eventOrders) {
+                await db.run(
+                    'UPDATE events SET event_order = ? WHERE id = ? AND project_id = ?',
+                    [order, id, projectId]
+                );
+            }
+
+            await db.run('COMMIT');
+        } catch (error) {
+            await db.run('ROLLBACK');
+            console.error('Error in reorderEvents:', error);
+            throw error;
+        }
+    }
+}
+
+export default EventModel;
+
+================================================================================
+File: backend/src/database/models/index.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/database/models/index.ts
+
+export { default as Project } from './Project';
+export { default as Device } from './Device';
+export { default as Event } from './Event';
+export { default as Item } from './Item';
+export * from './types';
+
+// Tipos comunes para los modelos
+export interface BaseModel {
+    id: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+// Interface para resultados paginados
+export interface PaginatedResult<T> {
+    data: T[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+}
+
+// Opciones de paginación
+export interface PaginationOptions {
+    page?: number;
+    pageSize?: number;
+    orderBy?: string;
+    orderDirection?: 'ASC' | 'DESC';
+}
+
+// Opciones de búsqueda
+export interface SearchOptions extends PaginationOptions {
+    filters?: Record<string, any>;
+    search?: string;
+}
+
+================================================================================
+File: backend/src/database/models/Item.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/database/models/Item.ts
+
+import DatabaseConnection from '../connection';
+import { BaseModel } from './index';
+
+export interface Position {
+    row: number;
+    column: number;
+}
+
+export interface ItemUnion {
+    union_id: number;
+    position: number;
+    delay: number;
+}
+
+export interface Item extends BaseModel {
+    event_id: number;
+    type_id: number;
+    device_server_id: number;
+    position_row: number;
+    position_column: number;
+    config_json?: string;
+    unions?: ItemUnion[];
+}
+
+export interface CreateItemData {
+    event_id: number;
+    type_id: number;
+    device_server_id: number;
+    position: Position;
+    config?: any;
+}
+
+export interface UpdateItemData {
+    type_id?: number;
+    device_server_id?: number;
+    position?: Position;
+    config?: any;
+}
+
+class ItemModel {
+    private static instance: ItemModel;
+    private db = DatabaseConnection.getInstance();
+
+    private constructor() {}
+
+    public static getInstance(): ItemModel {
+        if (!ItemModel.instance) {
+            ItemModel.instance = new ItemModel();
+        }
+        return ItemModel.instance;
+    }
+
+    async create(data: CreateItemData): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            // Verificar si la posición está ocupada
+            const existing = await db.get(
+                `SELECT id FROM items 
+                 WHERE event_id = ? 
+                 AND position_row = ? 
+                 AND position_column = ?`,
+                [data.event_id, data.position.row, data.position.column]
+            );
+
+            if (existing) {
+                throw new Error('Position already occupied');
+            }
+
+            const result = await db.run(
+                `INSERT INTO items (
+                    event_id, type_id, device_server_id, 
+                    position_row, position_column, config_json
+                ) VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                    data.event_id,
+                    data.type_id,
+                    data.device_server_id,
+                    data.position.row,
+                    data.position.column,
+                    data.config ? JSON.stringify(data.config) : null
+                ]
+            );
+
+            if (!result.lastID) throw new Error('Error creating item');
+
+            return this.getById(result.lastID);
+        } catch (error) {
+            console.error('Error in create item:', error);
+            throw error;
+        }
+    }
+
+    async getById(id: number, includeUnions: boolean = false): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            const item = await db.get<Item>(
+                'SELECT * FROM items WHERE id = ?',
+                id
+            );
+
+            if (!item) throw new Error('Item not found');
+
+            if (includeUnions) {
+                item.unions = await db.all(
+                    `SELECT union_id, position, delay 
+                     FROM item_unions 
+                     WHERE item_id = ?
+                     ORDER BY position`,
+                    id
+                );
+            }
+
+            return item;
+        } catch (error) {
+            console.error('Error in getById item:', error);
+            throw error;
+        }
+    }
+
+    async update(id: number, data: UpdateItemData): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            if (data.position) {
+                // Verificar si la nueva posición está ocupada
+                const existing = await db.get(
+                    `SELECT id FROM items 
+                     WHERE event_id = (SELECT event_id FROM items WHERE id = ?)
+                     AND position_row = ? 
+                     AND position_column = ?
+                     AND id != ?`,
+                    [id, data.position.row, data.position.column, id]
+                );
+
+                if (existing) {
+                    throw new Error('Position already occupied');
+                }
+            }
+
+            const updates: string[] = [];
+            const values: any[] = [];
+
+            Object.entries(data).forEach(([key, value]) => {
+                if (value !== undefined) {
+                    if (key === 'position') {
+                        updates.push('position_row = ?', 'position_column = ?');
+                        values.push(value.row, value.column);
+                    } else if (key === 'config') {
+                        updates.push('config_json = ?');
+                        values.push(JSON.stringify(value));
+                    } else {
+                        updates.push(`${key} = ?`);
+                        values.push(value);
+                    }
+                }
+            });
+
+            if (updates.length > 0) {
+                values.push(id);
+                await db.run(
+                    `UPDATE items 
+                     SET ${updates.join(', ')} 
+                     WHERE id = ?`,
+                    values
+                );
+            }
+
+            return this.getById(id);
+        } catch (error) {
+            console.error('Error in update item:', error);
+            throw error;
+        }
+    }
+
+    async delete(id: number): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            const result = await db.run(
+                'DELETE FROM items WHERE id = ?',
+                id
+            );
+
+            if (result.changes === 0) {
+                throw new Error('Item not found');
+            }
+        } catch (error) {
+            console.error('Error in delete item:', error);
+            throw error;
+        }
+    }
+
+    async getByEventId(eventId: number, includeUnions: boolean = false): Promise<Item[]> {
+        const db = await this.db.connect();
+        
+        try {
+            const items = await db.all<Item>(
+                `SELECT * FROM items 
+                 WHERE event_id = ? 
+                 ORDER BY position_row, position_column`,
+                eventId
+            );
+
+            if (includeUnions && items.length > 0) {
+                const unions = await db.all(
+                    `SELECT item_id, union_id, position, delay 
+                     FROM item_unions 
+                     WHERE item_id IN (${items.map(() => '?').join(',')})
+                     ORDER BY position`,
+                    items.map(item => item.id)
+                );
+
+                items.forEach(item => {
+                    item.unions = unions.filter(u => u.item_id === item.id);
+                });
+            }
+
+            return items;
+        } catch (error) {
+            console.error('Error in getByEventId:', error);
+            throw error;
+        }
+    }
+
+    async addUnion(itemId: number, unionId: number, position: number = 0, delay: number = 0): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run(
+                `INSERT INTO item_unions (item_id, union_id, position, delay)
+                 VALUES (?, ?, ?, ?)`,
+                [itemId, unionId, position, delay]
+            );
+        } catch (error) {
+            console.error('Error in addUnion:', error);
+            throw error;
+        }
+    }
+
+    async removeUnion(itemId: number, unionId: number): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run(
+                `DELETE FROM item_unions 
+                 WHERE item_id = ? AND union_id = ?`,
+                [itemId, unionId]
+            );
+        } catch (error) {
+            console.error('Error in removeUnion:', error);
+            throw error;
+        }
+    }
+
+    async updateUnion(
+        itemId: number, 
+        unionId: number, 
+        updates: { position?: number; delay?: number }
+    ): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            const setClause = [];
+            const values = [];
+
+            if (updates.position !== undefined) {
+                setClause.push('position = ?');
+                values.push(updates.position);
+            }
+            if (updates.delay !== undefined) {
+                setClause.push('delay = ?');
+                values.push(updates.delay);
+            }
+
+            if (setClause.length > 0) {
+                values.push(itemId, unionId);
+                await db.run(
+                    `UPDATE item_unions 
+                     SET ${setClause.join(', '// Ruta del fichero: /backend/src/database/models/Item.ts
+
+import DatabaseConnection from '../connection';
+import { BaseModel } from './index';
+
+export interface Position {
+    row: number;
+    column: number;
+}
+
+export interface ItemUnion {
+    union_id: number;
+    position: number;
+    delay: number;
+}
+
+export interface Item extends BaseModel {
+    event_id: number;
+    type_id: number;
+    device_server_id: number;
+    position_row: number;
+    position_column: number;
+    config_json?: string;
+    unions?: ItemUnion[];
+}
+
+export interface CreateItemData {
+    event_id: number;
+    type_id: number;
+    device_server_id: number;
+    position: Position;
+    config?: any;
+}
+
+export interface UpdateItemData {
+    type_id?: number;
+    device_server_id?: number;
+    position?: Position;
+    config?: any;
+}
+
+class ItemModel {
+    private static instance: ItemModel;
+    private db = DatabaseConnection.getInstance();
+
+    private constructor() {}
+
+    public static getInstance(): ItemModel {
+        if (!ItemModel.instance) {
+            ItemModel.instance = new ItemModel();
+        }
+        return ItemModel.instance;
+    }
+
+    async create(data: CreateItemData): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            // Verificar si la posición está ocupada
+            const existing = await db.get(
+                `SELECT id FROM items 
+                 WHERE event_id = ? 
+                 AND position_row = ? 
+                 AND position_column = ?`,
+                [data.event_id, data.position.row, data.position.column]
+            );
+
+            if (existing) {
+                throw new Error('Position already occupied');
+            }
+
+            const result = await db.run(
+                `INSERT INTO items (
+                    event_id, type_id, device_server_id, 
+                    position_row, position_column, config_json
+                ) VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                    data.event_id,
+                    data.type_id,
+                    data.device_server_id,
+                    data.position.row,
+                    data.position.column,
+                    data.config ? JSON.stringify(data.config) : null
+                ]
+            );
+
+            if (!result.lastID) throw new Error('Error creating item');
+
+            return this.getById(result.lastID);
+        } catch (error) {
+            console.error('Error in create item:', error);
+            throw error;
+        }
+    }
+
+    async getById(id: number, includeUnions: boolean = false): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            const item = await db.get<Item>(
+                'SELECT * FROM items WHERE id = ?',
+                id
+            );
+
+            if (!item) throw new Error('Item not found');
+
+            if (includeUnions) {
+                item.unions = await db.all(
+                    `SELECT union_id, position, delay 
+                     FROM item_unions 
+                     WHERE item_id = ?
+                     ORDER BY position`,
+                    id
+                );
+            }
+
+            return item;
+        } catch (error) {
+            console.error('Error in getById item:', error);
+            throw error;
+        }
+    }
+
+    async update(id: number, data: UpdateItemData): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            if (data.position) {
+                // Verificar si la nueva posición está ocupada
+                const existing = await db.get(
+                    `SELECT id FROM items 
+                     WHERE event_id = (SELECT event_id FROM items WHERE id = ?)
+                     AND position_row = ? 
+                     AND position_column = ?
+                     AND id != ?`,
+                    [id, data.position.row, data.position.column, id]
+                );
+
+                if (existing) {
+                    throw new Error('Position already occupied');
+                }
+            }
+
+            const updates: string[] = [];
+            const values: any[] = [];
+
+            Object.entries(data).forEach(([key, value]) => {
+                if (value !== undefined) {
+                    if (key === 'position') {
+                        updates.push('position_row = ?', 'position_column = ?');
+                        values.push(value.row, value.column);
+                    } else if (key === 'config') {
+                        updates.push('config_json = ?');
+                        values.push(JSON.stringify(value));
+                    } else {
+                        updates.push(`${key} = ?`);
+                        values.push(value);
+                    }
+                }
+            });
+
+            if (updates.length > 0) {
+                values.push(id);
+                await db.run(
+                    `UPDATE items 
+                     SET ${updates.join(', ')} 
+                     WHERE id = ?`,
+                    values
+                );
+            }
+
+            return this.getById(id);
+        } catch (error) {
+            console.error('Error in update item:', error);
+            throw error;
+        }
+    }
+
+    async delete(id: number): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            const result = await db.run(
+                'DELETE FROM items WHERE id = ?',
+                id
+            );
+
+            if (result.changes === 0) {
+                throw new Error('Item not found');
+            }
+        } catch (error) {
+            console.error('Error in delete item:', error);
+            throw error;
+        }
+    }
+
+    async getByEventId(eventId: number, includeUnions: boolean = false): Promise<Item[]> {
+        const db = await this.db.connect();
+        
+        try {
+            const items = await db.all<Item>(
+                `SELECT * FROM items 
+                 WHERE event_id = ? 
+                 ORDER BY position_row, position_column`,
+                eventId
+            );
+
+            if (includeUnions && items.length > 0) {
+                const unions = await db.all(
+                    `SELECT item_id, union_id, position, delay 
+                     FROM item_unions 
+                     WHERE item_id IN (${items.map(() => '?').join(',')})
+                     ORDER BY position`,
+                    items.map(item => item.id)
+                );
+
+                items.forEach(item => {
+                    item.unions = unions.filter(u => u.item_id === item.id);
+                });
+            }
+
+            return items;
+        } catch (error) {
+            console.error('Error in getByEventId:', error);
+            throw error;
+        }
+    }
+
+    async addUnion(itemId: number, unionId: number, position: number = 0, delay: number = 0): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run(
+                `INSERT INTO item_unions (item_id, union_id, position, delay)
+                 VALUES (?, ?, ?, ?)`,
+                [itemId, unionId, position, delay]
+            );
+        } catch (error) {
+            console.error('Error in addUnion:', error);
+            throw error;
+        }
+    }
+
+    async removeUnion(itemId: number, unionId: number): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run(
+                `DELETE FROM item_unions 
+                 WHERE item_id = ? AND union_id = ?`,
+                [itemId, unionId]
+            );
+        } catch (error) {
+            console.error('Error in removeUnion:', error);
+            throw error;
+        }
+    }
+
+    async updateUnion(
+        itemId: number, 
+        unionId: number, 
+        updates: { position?: number; delay?: number }
+    ): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            const setClause = [];
+            const values = [];
+
+            if (updates.position !== undefined) {
+                setClause.push('position = ?');
+                values.push(updates.position);
+            }
+            if (updates.delay !== undefined) {
+                setClause.push('delay = ?');
+                values.push(updates.delay);
+            }
+
+            if (setClause.length > 0) {
+                values.push(itemId, unionId);
+                await db.run(`UPDATE item_unions 
+                     SET ${setClause.join(', ')} 
+                     WHERE item_id = ? AND union_id = ?`,
+                    values
+                );
+            }
+        } catch (error) {
+            console.error('Error in updateUnion:', error);
+            throw error;
+        }
+    }
+
+    async getItemConfig<T = any>(id: number): Promise<T | null> {
+        const item = await this.getById(id);
+        if (!item.config_json) return null;
+        return JSON.parse(item.config_json) as T;
+    }
+
+    async setItemConfig<T = any>(id: number, config: T): Promise<Item> {
+        return this.update(id, { config });
+    }
+
+    async moveItem(id: number, newPosition: Position): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run('BEGIN TRANSACTION');
+
+            // Obtener información del item actual
+            const item = await this.getById(id);
+
+            // Verificar si la nueva posición está ocupada
+            const existing = await db.get(
+                `SELECT id FROM items 
+                 WHERE event_id = ? 
+                 AND position_row = ? 
+                 AND position_column = ?
+                 AND id != ?`,
+                [item.event_id, newPosition.row, newPosition.column, id]
+            );
+
+            if (existing) {
+                // Si la posición está ocupada, intercambiar posiciones
+                await db.run(
+                    `UPDATE items 
+                     SET position_row = ?, position_column = ? 
+                     WHERE id = ?`,
+                    [item.position_row, item.position_column, existing.id]
+                );
+            }
+
+            // Mover el item a la nueva posición
+            await db.run(
+                `UPDATE items 
+                 SET position_row = ?, position_column = ? 
+                 WHERE id = ?`,
+                [newPosition.row, newPosition.column, id]
+            );
+
+            await db.run('COMMIT');
+            return this.getById(id);
+        } catch (error) {
+            await db.run('ROLLBACK');
+            console.error('Error in moveItem:', error);
+            throw error;
+        }
+    }
+
+    async validateItemPositions(eventId: number): Promise<boolean> {
+        const db = await this.db.connect();
+        
+        try {
+            // Buscar posiciones duplicadas
+            const duplicates = await db.all(
+                `SELECT position_row, position_column, COUNT(*) as count
+                 FROM items 
+                 WHERE event_id = ?
+                 GROUP BY position_row, position_column
+                 HAVING count > 1`,
+                eventId
+            );
+
+            return duplicates.length === 0;
+        } catch (error) {
+            console.error('Error in validateItemPositions:', error);
+            throw error;
+        }
+    }
+
+    async getItemsMatrix(eventId: number): Promise<(Item | null)[][]> {
+        const items = await this.getByEventId(eventId, true);
+        const matrix: (Item | null)[][] = [];
+
+        // Encontrar el número máximo de filas
+        const maxRow = Math.max(...items.map(item => item.position_row), 0);
+
+        // Inicializar matriz con nulls
+        for (let i = 0; i <= maxRow; i++) {
+            matrix[i] = Array(3).fill(null);
+        }
+
+        // Rellenar matriz con items
+        items.forEach(item => {
+            matrix[item.position_row - 1][item.position_column - 1] = item;
+        });
+
+        return matrix;
+    }
+
+    async duplicateItem(id: number, newPosition: Position): Promise<Item> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run('BEGIN TRANSACTION');
+
+            // Obtener item original con uniones
+            const originalItem = await this.getById(id, true);
+
+            // Crear nuevo item
+            const newItem = await this.create({
+                event_id: originalItem.event_id,
+                type_id: originalItem.type_id,
+                device_server_id: originalItem.device_server_id,
+                position: newPosition,
+                config: originalItem.config_json ? JSON.parse(originalItem.config_json) : undefined
+            });
+
+            // Duplicar uniones si existen
+            if (originalItem.unions) {
+                for (const union of originalItem.unions) {
+                    await this.addUnion(
+                        newItem.id,
+                        union.union_id,
+                        union.position,
+                        union.delay
+                    );
+                }
+            }
+
+            await db.run('COMMIT');
+            return this.getById(newItem.id, true);
+        } catch (error) {
+            await db.run('ROLLBACK');
+            console.error('Error in duplicateItem:', error);
+            throw error;
+        }
+    }
+}
+
+export default ItemModel;
+
+================================================================================
+File: backend/src/database/models/Project.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/database/models/Project.ts
+
+import DatabaseConnection from '../connection';
+import { BaseModel, SearchOptions, PaginatedResult } from './index';
+import Event from './Event';
+
+export interface Project extends BaseModel {
+    name: string;
+    description?: string;
+    active: boolean;
+    events?: Event[];
+}
+
+export interface CreateProjectData {
+    name: string;
+    description?: string;
+}
+
+export interface UpdateProjectData {
+    name?: string;
+    description?: string;
+    active?: boolean;
+}
+
+class ProjectModel {
+    private static instance: ProjectModel;
+    private db = DatabaseConnection.getInstance();
+
+    private constructor() {}
+
+    public static getInstance(): ProjectModel {
+        if (!ProjectModel.instance) {
+            ProjectModel.instance = new ProjectModel();
+        }
+        return ProjectModel.instance;
+    }
+
+    async create(data: CreateProjectData): Promise<Project> {
+        const db = await this.db.connect();
+        
+        try {
+            const result = await db.run(
+                `INSERT INTO projects (name, description) 
+                 VALUES (?, ?)`,
+                [data.name, data.description]
+            );
+
+            if (!result.lastID) throw new Error('Error creating project');
+
+            return this.getById(result.lastID);
+        } catch (error) {
+            console.error('Error in create project:', error);
+            throw error;
+        }
+    }
+
+    async getById(id: number, includeEvents: boolean = false): Promise<Project> {
+        const db = await this.db.connect();
+        
+        try {
+            const project = await db.get<Project>(
+                'SELECT * FROM projects WHERE id = ?',
+                id
+            );
+
+            if (!project) throw new Error('Project not found');
+
+            if (includeEvents) {
+                project.events = await db.all(
+                    `SELECT * FROM events 
+                     WHERE project_id = ? 
+                     ORDER BY event_order`,
+                    id
+                );
+            }
+
+            return project;
+        } catch (error) {
+            console.error('Error in getById project:', error);
+            throw error;
+        }
+    }
+
+    async update(id: number, data: UpdateProjectData): Promise<Project> {
+        const db = await this.db.connect();
+        
+        try {
+            const updates: string[] = [];
+            const values: any[] = [];
+
+            Object.entries(data).forEach(([key, value]) => {
+                if (value !== undefined) {
+                    updates.push(`${key} = ?`);
+                    values.push(value);
+                }
+            });
+
+            if (updates.length === 0) {
+                return this.getById(id);
+            }
+
+            values.push(id);
+
+            await db.run(
+                `UPDATE projects 
+                 SET ${updates.join(', ')} 
+                 WHERE id = ?`,
+                values
+            );
+
+            return this.getById(id);
+        } catch (error) {
+            console.error('Error in update project:', error);
+            throw error;
+        }
+    }
+
+    async delete(id: number): Promise<void> {
+        const db = await this.db.connect();
+        
+        try {
+            const result = await db.run(
+                'DELETE FROM projects WHERE id = ?',
+                id
+            );
+
+            if (result.changes === 0) {
+                throw new Error('Project not found');
+            }
+        } catch (error) {
+            console.error('Error in delete project:', error);
+            throw error;
+        }
+    }
+
+    async search(options: SearchOptions = {}): Promise<PaginatedResult<Project>> {
+        const db = await this.db.connect();
+        
+        try {
+            const {
+                page = 1,
+                pageSize = 10,
+                orderBy = 'created_at',
+                orderDirection = 'DESC',
+                search = '',
+                filters = {}
+            } = options;
+
+            let whereClause = 'WHERE 1=1';
+            const values: any[] = [];
+
+            if (search) {
+                whereClause += ' AND (name LIKE ? OR description LIKE ?)';
+                values.push(`%${search}%`, `%${search}%`);
+            }
+
+            Object.entries(filters).forEach(([key, value]) => {
+                whereClause += ` AND ${key} = ?`;
+                values.push(value);
+            });
+
+            const offset = (page - 1) * pageSize;
+
+            const [total, rows] = await Promise.all([
+                db.get<{ count: number }>(
+                    `SELECT COUNT(*) as count 
+                     FROM projects ${whereClause}`,
+                    values
+                ),
+                db.all<Project>(
+                    `SELECT * 
+                     FROM projects 
+                     ${whereClause} 
+                     ORDER BY ${orderBy} ${orderDirection}
+                     LIMIT ? OFFSET ?`,
+                    [...values, pageSize, offset]
+                )
+            ]);
+
+            return {
+                data: rows,
+                total: total?.count || 0,
+                page,
+                pageSize,
+                totalPages: Math.ceil((total?.count || 0) / pageSize)
+            };
+        } catch (error) {
+            console.error('Error in search projects:', error);
+            throw error;
+        }
+    }
+
+    // Métodos adicionales específicos del proyecto
+    async duplicate(id: number, newName?: string): Promise<Project> {
+        const db = await this.db.connect();
+        
+        try {
+            await db.run('BEGIN TRANSACTION');
+
+            const originalProject = await this.getById(id, true);
+            const projectName = newName || `${originalProject.name} (copy)`;
+
+            // Crear nuevo proyecto
+            const newProject = await this.create({
+                name: projectName,
+                description: originalProject.description
+            });
+
+            // Duplicar eventos si existen
+            if (originalProject.events) {
+                for (const event of originalProject.events) {
+                    await db.run(
+                        `INSERT INTO events (project_id, title, event_order) 
+                         VALUES (?, ?, ?)`,
+                        [newProject.id, event.title, event.event_order]
+                    );
+                }
+            }
+
+            await db.run('COMMIT');
+            return this.getById(newProject.id, true);
+        } catch (error) {
+            await db.run('ROLLBACK');
+            console.error('Error in duplicate project:', error);
+            throw error;
+        }
+    }
+}
+
+export default ProjectModel;
+
+================================================================================
+File: backend/src/devices/base/DeviceServer.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/devices/base/DeviceServer.ts
+
+import { EventEmitter } from 'events';
+import {
+  DeviceConfig,
+  DeviceState,
+  DeviceStatus,
+  DeviceError,
+  DeviceEvent,
+  DeviceEventHandlers,
+  DeviceOperationOptions,
+  DeviceOperationResult
+} from './types';
+
+export abstract class DeviceServer extends EventEmitter {
+  protected state: DeviceState;
+  protected connectionTimer?: NodeJS.Timeout;
+  protected reconnectTimer?: NodeJS.Timeout;
+  protected operationTimeouts: Map<string, NodeJS.Timeout>;
+
+  constructor(config: DeviceConfig) {
+    super();
+    this.operationTimeouts = new Map();
+    this.state = {
+      id: config.id,
+      status: DeviceStatus.DISCONNECTED,
+      config: config
+    };
+  }
+
+  /**
+   * Inicia la conexión con el dispositivo
+   */
+  public async connect(): Promise<boolean> {
+    try {
+      if (this.state.status === DeviceStatus.CONNECTED) {
+        return true;
+      }
+
+      this.updateState({ status: DeviceStatus.CONNECTING });
+      
+      // Implementar en la clase concreta
+      await this.establishConnection();
+      
+      this.updateState({ 
+        status: DeviceStatus.CONNECTED,
+        lastConnection: new Date()
+      });
+      
+      this.emit(DeviceEvent.CONNECTED);
+      return true;
+    } catch (error) {
+      const deviceError = this.createError('CONNECTION_FAILED', error);
+      this.handleError(deviceError);
+      return false;
+    }
+  }
+
+  /**
+   * Cierra la conexión con el dispositivo
+   */
+  public async disconnect(): Promise<void> {
+    try {
+      // Implementar en la clase concreta
+      await this.closeConnection();
+      
+      this.updateState({ status: DeviceStatus.DISCONNECTED });
+      this.emit(DeviceEvent.DISCONNECTED);
+    } catch (error) {
+      const deviceError = this.createError('DISCONNECT_FAILED', error);
+      this.handleError(deviceError);
+    }
+  }
+
+  /**
+   * Obtiene el estado actual del dispositivo
+   */
+  public getState(): DeviceState {
+    return { ...this.state };
+  }
+
+  /**
+   * Registra manejadores de eventos
+   */
+  public registerEventHandlers(handlers: DeviceEventHandlers): void {
+    if (handlers.onConnected) {
+      this.on(DeviceEvent.CONNECTED, handlers.onConnected);
+    }
+    if (handlers.onDisconnected) {
+      this.on(DeviceEvent.DISCONNECTED, handlers.onDisconnected);
+    }
+    if (handlers.onError) {
+      this.on(DeviceEvent.ERROR, handlers.onError);
+    }
+    if (handlers.onStateChange) {
+      this.on(DeviceEvent.STATE_CHANGE, handlers.onStateChange);
+    }
+  }
+
+  /**
+   * Ejecuta una operación con control de timeout
+   */
+  protected async executeWithTimeout<T>(
+    operation: () => Promise<T>,
+    options?: DeviceOperationOptions
+  ): Promise<DeviceOperationResult<T>> {
+    const operationId = Math.random().toString(36).substring(7);
+    const timeout = options?.timeout ?? this.state.config.timeout ?? 5000;
+
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('Operation timeout'));
+        }, timeout);
+        this.operationTimeouts.set(operationId, timer);
+      });
+
+      const result = await Promise.race([
+        operation(),
+        timeoutPromise
+      ]);
+
+      return {
+        success: true,
+        deviceId: this.state.id,
+        operationId,
+        timestamp: new Date(),
+        data: result
+      };
+    } catch (error) {
+      const deviceError = this.createError('OPERATION_FAILED', error);
+      return {
+        success: false,
+        deviceId: this.state.id,
+        operationId,
+        timestamp: new Date(),
+        error: deviceError
+      };
+    } finally {
+      const timer = this.operationTimeouts.get(operationId);
+      if (timer) {
+        clearTimeout(timer);
+        this.operationTimeouts.delete(operationId);
+      }
+    }
+  }
+
+  /**
+   * Actualiza el estado del dispositivo
+   */
+  protected updateState(update: Partial<DeviceState>): void {
+    this.state = { ...this.state, ...update };
+    this.emit(DeviceEvent.STATE_CHANGE, this.getState());
+  }
+
+  /**
+   * Maneja errores del dispositivo
+   */
+  protected handleError(error: DeviceError): void {
+    this.updateState({
+      status: DeviceStatus.ERROR,
+      lastError: error.message
+    });
+    this.emit(DeviceEvent.ERROR, error);
+
+    // Intentar reconexión si está configurado
+    if (this.state.config.reconnectAttempts && this.state.config.reconnectInterval) {
+      this.scheduleReconnect();
+    }
+  }
+
+  /**
+   * Programa un intento de reconexión
+   */
+  protected scheduleReconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+
+    this.reconnectTimer = setTimeout(async () => {
+      await this.connect();
+    }, this.state.config.reconnectInterval);
+  }
+
+  /**
+   * Crea un error tipado del dispositivo
+   */
+  protected createError(code: string, originalError?: unknown): DeviceError {
+    const error = new Error() as DeviceError;
+    error.name = 'DeviceError';
+    error.code = code;
+    error.deviceId = this.state.id;
+    error.deviceType = this.state.config.type;
+    error.message = originalError instanceof Error ? originalError.message : 'Unknown error';
+    error.originalError = originalError;
+    return error;
+  }
+
+  /**
+   * Métodos abstractos que deben implementar las clases concretas
+   */
+  protected abstract establishConnection(): Promise<void>;
+  protected abstract closeConnection(): Promise<void>;
+  protected abstract validateConnection(): boolean;
+  public abstract executeCommand(command: string, params?: unknown): Promise<DeviceOperationResult>;
+}
+
+================================================================================
+File: backend/src/devices/base/errors.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/devices/base/errors.ts
+
+export class DeviceConnectionError extends Error {
+    constructor(deviceId: string, message: string, cause?: Error) {
+      super(`Device ${deviceId} connection error: ${message}`);
+      this.name = 'DeviceConnectionError';
+      this.cause = cause;
+    }
+  }
+  
+  export class DeviceCommandError extends Error {
+    constructor(deviceId: string, command: string, message: string, cause?: Error) {
+      super(`Device ${deviceId} command "${command}" failed: ${message}`);
+      this.name = 'DeviceCommandError';
+      this.cause = cause;
+    }
+  }
+  
+  export class DeviceTimeoutError extends Error {
+    constructor(deviceId: string, operation: string, timeout: number) {
+      super(`Device ${deviceId} timeout after ${timeout}ms during ${operation}`);
+      this.name = 'DeviceTimeoutError';
+    }
+  }
+  
+  export class DeviceNotFoundError extends Error {
+    constructor(deviceId: string) {
+      super(`Device ${deviceId} not found`);
+      this.name = 'DeviceNotFoundError';
+    }
+  }
+  
+  export class DeviceValidationError extends Error {
+    constructor(deviceId: string, message: string) {
+      super(`Device ${deviceId} validation error: ${message}`);
+      this.name = 'DeviceValidationError';
+    }
+  }
+  
+  export class DeviceStateError extends Error {
+    constructor(deviceId: string, state: string, message: string) {
+      super(`Device ${deviceId} in state "${state}": ${message}`);
+      this.name = 'DeviceStateError';
+    }
+  }
+  
+  export class DeviceConfigError extends Error {
+    constructor(deviceId: string, message: string) {
+      super(`Device ${deviceId} configuration error: ${message}`);
+      this.name = 'DeviceConfigError';
+    }
+  }
+
+================================================================================
+File: backend/src/devices/base/ServerManager.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/devices/base/ServerManager.ts
+
+import { EventEmitter } from 'events';
+import { DeviceServer } from './DeviceServer';
+import { ServerStatus, ServerConfig, ServerType } from './types';
+
+export class ServerManager extends EventEmitter {
+  private servers: Map<string, DeviceServer> = new Map();
+
+  constructor() {
+    super();
+  }
+
+  async addServer(config: ServerConfig): Promise<string> {
+    const serverId = `${config.type}-${config.host}:${config.port}`;
+    
+    if (this.servers.has(serverId)) {
+      throw new Error(`Server ${serverId} already exists`);
+    }
+
+    const server = this.createServer(config);
+    this.servers.set(serverId, server);
+
+    // Configurar event listeners
+    server.on('statusChange', (status: ServerStatus) => {
+      this.emit('serverStatusChange', { serverId, status });
+    });
+
+    server.on('error', (error: Error) => {
+      this.emit('serverError', { serverId, error });
+    });
+
+    try {
+      await server.connect();
+      return serverId;
+    } catch (error) {
+      this.servers.delete(serverId);
+      throw error;
+    }
+  }
+
+  removeServer(serverId: string): void {
+    const server = this.servers.get(serverId);
+    if (server) {
+      server.disconnect();
+      this.servers.delete(serverId);
+    }
+  }
+
+  getServer(serverId: string): DeviceServer | undefined {
+    return this.servers.get(serverId);
+  }
+
+  getAllServers(): Map<string, DeviceServer> {
+    return new Map(this.servers);
+  }
+
+  private createServer(config: ServerConfig): DeviceServer {
+    switch (config.type) {
+      case ServerType.CASPAR:
+        const CasparServer = require('../caspar/CasparServer').default;
+        return new CasparServer(config);
+      // Aquí se añadirán más tipos de servidores en el futuro
+      default:
+        throw new Error(`Unsupported server type: ${config.type}`);
+    }
+  }
+
+  async initialize(configs: ServerConfig[]): Promise<void> {
+    const initPromises = configs.map(config => this.addServer(config));
+    await Promise.all(initPromises);
+  }
+
+  async shutdown(): Promise<void> {
+    const shutdownPromises = Array.from(this.servers.values()).map(server => 
+      server.disconnect().catch(error => 
+        console.error(`Error shutting down server: ${error.message}`)
+      )
+    );
+    await Promise.all(shutdownPromises);
+    this.servers.clear();
+  }
+}
+
+export default ServerManager;
+
+================================================================================
+File: backend/src/devices/base/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/devices/base/types.ts
+
+/** Estado general de un dispositivo */
+export enum DeviceStatus {
+    DISCONNECTED = 'disconnected',
+    CONNECTING = 'connecting',
+    CONNECTED = 'connected',
+    ERROR = 'error'
+  }
+  
+  /** Tipo de dispositivo soportado */
+  export enum DeviceType {
+    CASPAR = 'caspar',
+    VMIX = 'vmix',
+    ATEM = 'atem'
+  }
+  
+  /** Configuración base para cualquier dispositivo */
+  export interface DeviceConfig {
+    id: number;
+    name: string;
+    type: DeviceType;
+    host: string;
+    port: number;
+    enabled: boolean;
+    reconnectAttempts?: number;
+    reconnectInterval?: number;
+    timeout?: number;
+  }
+  
+  /** Estado completo de un dispositivo */
+  export interface DeviceState {
+    id: number;
+    status: DeviceStatus;
+    lastError?: string;
+    lastConnection?: Date;
+    config: DeviceConfig;
+  }
+  
+  /** Interfaz base para manejo de errores de dispositivo */
+  export interface DeviceError extends Error {
+    code: string;
+    deviceId: number;
+    deviceType: DeviceType;
+    originalError?: unknown;
+  }
+  
+  /** Opciones para operaciones de dispositivo */
+  export interface DeviceOperationOptions {
+    timeout?: number;
+    retryAttempts?: number;
+    retryDelay?: number;
+    force?: boolean;
+  }
+  
+  /** Eventos que puede emitir un dispositivo */
+  export enum DeviceEvent {
+    CONNECTED = 'connected',
+    DISCONNECTED = 'disconnected',
+    ERROR = 'error',
+    STATE_CHANGE = 'stateChange',
+    OPERATION_COMPLETE = 'operationComplete',
+    OPERATION_ERROR = 'operationError'
+  }
+  
+  /** Interfaz para manejadores de eventos de dispositivo */
+  export interface DeviceEventHandlers {
+    onConnected?: () => void;
+    onDisconnected?: () => void;
+    onError?: (error: DeviceError) => void;
+    onStateChange?: (state: DeviceState) => void;
+  }
+  
+  /** Resultado de una operación de dispositivo */
+  export interface DeviceOperationResult<T = unknown> {
+    success: boolean;
+    deviceId: number;
+    operationId: string;
+    timestamp: Date;
+    data?: T;
+    error?: DeviceError;
+  }
+
+================================================================================
+File: backend/src/devices/caspar/CasparConnection.ts
+--------------------------------------------------------------------------------
+// /backend/src/devices/caspar/CasparConnection.ts
+
+import { CasparcgConnection } from 'casparcg-connection';
+import { CasparConfig } from './types';
+import { DeviceConnectionError } from '../base/errors';
+
+export class CasparConnection {
+  private connection: CasparcgConnection | null = null;
+  private config: CasparConfig;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+
+  constructor(config: CasparConfig) {
+    this.config = config;
+  }
+
+  async connect(): Promise<void> {
+    try {
+      this.connection = new CasparcgConnection({
+        host: this.config.host,
+        port: this.config.port,
+        autoConnect: false,
+      });
+
+      await this.connection.connect();
+      console.log(`[CasparCG] Connected to ${this.config.host}:${this.config.port}`);
+      
+      this.connection.on('error', this.handleError.bind(this));
+      this.connection.on('disconnected', this.handleDisconnect.bind(this));
+
+      // Reset reconnection state on successful connection
+      this.reconnectAttempts = 0;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+    } catch (error) {
+      throw new DeviceConnectionError('CasparCG', error.message);
+    }
+  }
+
+  private handleError(error: Error): void {
+    console.error('[CasparCG] Connection error:', error);
+    this.attemptReconnect();
+  }
+
+  private handleDisconnect(): void {
+    console.log('[CasparCG] Disconnected');
+    this.attemptReconnect();
+  }
+
+  private attemptReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('[CasparCG] Max reconnection attempts reached');
+      return;
+    }
+
+    if (!this.reconnectTimer) {
+      this.reconnectTimer = setTimeout(async () => {
+        this.reconnectAttempts++;
+        console.log(`[CasparCG] Attempting reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        
+        try {
+          await this.connect();
+        } catch (error) {
+          console.error('[CasparCG] Reconnection failed:', error);
+          this.reconnectTimer = null;
+          this.attemptReconnect();
+        }
+      }, 5000); // 5 second delay between attempts
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.connection) {
+      await this.connection.disconnect();
+      this.connection = null;
+    }
+  }
+
+  async sendCommand(command: string): Promise<void> {
+    if (!this.connection) {
+      throw new DeviceConnectionError('CasparCG', 'Not connected');
+    }
+
+    try {
+      await this.connection.executeCommand(command);
+    } catch (error) {
+      throw new DeviceConnectionError('CasparCG', `Command failed: ${error.message}`);
+    }
+  }
+
+  isConnected(): boolean {
+    return this.connection?.connected || false;
+  }
+}
+
+================================================================================
+File: backend/src/devices/caspar/CasparServer.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/devices/caspar/CasparServer.ts
+
+import net from 'net';
+import { DeviceServer } from '../base/DeviceServer';
+import { DeviceOperationResult, DeviceStatus } from '../base/types';
+import {
+  CasparConfig,
+  CasparCommandType,
+  CasparPlayParams,
+  CasparLoadParams,
+  CasparTemplateParams,
+  CasparChannelState,
+  CasparItemState,
+  CasparClipResult,
+  CasparTemplateResult
+} from './types';
+
+export class CasparServer extends DeviceServer {
+  private socket: net.Socket | null = null;
+  private messageBuffer: string = '';
+  private channels: Map<number, CasparChannelState>;
+  private commandQueue: Array<{
+    command: string;
+    resolve: (value: DeviceOperationResult) => void;
+    reject: (error: Error) => void;
+  }> = [];
+  private readonly config: CasparConfig;
+
+  constructor(config: CasparConfig) {
+    super(config);
+    this.config = config;
+    this.channels = new Map();
+    this.initializeChannels();
+  }
+
+  private initializeChannels(): void {
+    this.config.channels.forEach(channelNumber => {
+      this.channels.set(channelNumber, {
+        channel: channelNumber,
+        layers: new Map(),
+        format: 'unknown',
+        width: 1,
+        height: 1080,
+        fps: 25
+      });
+    });
+  }
+
+  protected async establishConnection(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.socket = new net.Socket();
+
+      this.socket.on('connect', () => {
+        this.socket?.write('VERSION\r\n'); // Verificar versión al conectar
+        resolve();
+      });
+
+      this.socket.on('data', (data) => {
+        this.handleData(data.toString());
+      });
+
+      this.socket.on('error', (error) => {
+        this.handleError(this.createError('SOCKET_ERROR', error));
+      });
+
+      this.socket.on('close', () => {
+        if (this.state.status !== DeviceStatus.DISCONNECTED) {
+          this.handleError(this.createError('CONNECTION_CLOSED'));
+        }
+      });
+
+      try {
+        this.socket.connect({
+          host: this.config.host,
+          port: this.config.port
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  protected async closeConnection(): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.socket) {
+        this.socket.end(() => {
+          this.socket = null;
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  protected validateConnection(): boolean {
+    return this.socket !== null && this.socket.writable;
+  }
+
+  private handleData(data: string): void {
+    this.messageBuffer += data;
+
+    // Procesar mensajes completos
+    let newlineIndex;
+    while ((newlineIndex = this.messageBuffer.indexOf('\r\n')) !== -1) {
+      const message = this.messageBuffer.substring(0, newlineIndex);
+      this.messageBuffer = this.messageBuffer.substring(newlineIndex + 2);
+      
+      if (message.startsWith('RET')) {
+        this.handleResponse(message);
+      } else {
+        this.handleInfo(message);
+      }
+    }
+  }
+
+  private handleResponse(message: string): void {
+    const cmd = this.commandQueue.shift();
+    if (!cmd) return;
+
+    if (message.startsWith('RET 200')) {
+      cmd.resolve({
+        success: true,
+        deviceId: this.state.id,
+        operationId: message.split(' ')[2] || '0',
+        timestamp: new Date()
+      });
+    } else {
+      const error = this.createError('COMMAND_FAILED', new Error(message));
+      cmd.reject(error);
+    }
+  }
+
+  private handleInfo(message: string): void {
+    // Procesar información de estado de canales y capas
+    if (message.startsWith('INFO')) {
+      const parts = message.split(' ');
+      const channel = parseInt(parts[1]);
+      const channelState = this.channels.get(channel);
+      
+      if (channelState && parts.length > 2) {
+        const info = this.parseInfoMessage(parts.slice(2).join(' '));
+        this.updateChannelState(channel, info);
+      }
+    }
+  }
+
+  private parseInfoMessage(info: string): Partial<CasparChannelState> {
+    try {
+      const data = JSON.parse(info);
+      return {
+        format: data.format,
+        width: data.width,
+        height: data.height,
+        fps: data.fps
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  private updateChannelState(channel: number, update: Partial<CasparChannelState>): void {
+    const current = this.channels.get(channel);
+    if (current) {
+      this.channels.set(channel, { ...current, ...update });
+      this.emit('channelStateChange', channel, this.channels.get(channel));
+    }
+  }
+
+  public async executeCommand(
+    command: string,
+    params?: unknown
+  ): Promise<DeviceOperationResult> {
+    if (!this.validateConnection()) {
+      throw this.createError('NOT_CONNECTED');
+    }
+
+    return new Promise((resolve, reject) => {
+      const formattedCommand = this.formatCommand(command, params);
+      
+      this.commandQueue.push({ command: formattedCommand, resolve, reject });
+      
+      this.socket?.write(formattedCommand + '\r\n', (error) => {
+        if (error) {
+          const cmd = this.commandQueue.pop();
+          if (cmd) {
+            cmd.reject(this.createError('SEND_FAILED', error));
+          }
+        }
+      });
+    });
+  }
+
+  private formatCommand(command: string, params?: unknown): string {
+    switch (command) {
+      case CasparCommandType.PLAY:
+        return this.formatPlayCommand(params as CasparPlayParams);
+      case CasparCommandType.LOAD:
+        return this.formatLoadCommand(params as CasparLoadParams);
+      case CasparCommandType.ADD:
+        return this.formatTemplateCommand(params as CasparTemplateParams);
+      // Añadir más casos según sea necesario
+      default:
+        return command;
+    }
+  }
+
+  private formatPlayCommand(params: CasparPlayParams): string {
+    const { channel, layer, clipName, loop, transition } = params;
+    let cmd = `PLAY ${channel}-${layer} "${clipName}"`;
+    
+    if (loop) {
+      cmd += ' LOOP';
+    }
+    
+    if (transition) {
+      cmd += ` ${transition.type.toUpperCase()}`;
+      if (transition.duration) {
+        cmd += ` ${transition.duration}`;
+      }
+    }
+    
+    return cmd;
+  }
+
+  private formatLoadCommand(params: CasparLoadParams): string {
+    const { channel, layer, clipName, loop } = params;
+    let cmd = `LOAD ${channel}-${layer} "${clipName}"`;
+    
+    if (loop) {
+      cmd += ' LOOP';
+    }
+    
+    return cmd;
+  }
+
+  private formatTemplateCommand(params: CasparTemplateParams): string {
+    const { channel, layer, template, playOnLoad, data } = params;
+    let cmd = `CG ${channel}-${layer} ADD "${template}" ${playOnLoad ? '1' : '0'}`;
+    
+    if (data) {
+      cmd += ` '${JSON.stringify(data)}'`;
+    }
+    
+    return cmd;
+  }
+
+  // Métodos públicos de conveniencia
+  public async play(params: CasparPlayParams): Promise<CasparClipResult> {
+    return this.executeCommand(CasparCommandType.PLAY, params) as Promise<CasparClipResult>;
+  }
+
+  public async loadTemplate(params: CasparTemplateParams): Promise<CasparTemplateResult> {
+    return this.executeCommand(CasparCommandType.ADD, params) as Promise<CasparTemplateResult>;
+  }
+
+  public async getChannelInfo(channel: number): Promise<CasparChannelState | undefined> {
+    await this.executeCommand(`INFO ${channel}`);
+    return this.channels.get(channel);
+  }
+
+  public getDefaultChannel(): number {
+    return this.config.defaultChannel || this.config.channels[0];
+  }
+
+  public getDefaultLayer(): number {
+    return this.config.defaultLayer || 1;
+  }
+}
+
+================================================================================
+File: backend/src/devices/caspar/CasparServerConfig.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/devices/caspar/CasparServerConfig.ts
+
+interface CasparChannel {
+    id: number;
+    videoMode: string;
+    frameRate: number;
+   }
+   
+   interface CasparLayer {
+    id: number;
+    type: 'video' | 'graphics' | 'audio';
+   }
+   
+   interface CasparTemplate {
+    name: string;
+    path: string;
+    fields: {
+      name: string;
+      type: 'text' | 'number' | 'boolean' | 'color';
+      default?: any;
+    }[];
+   }
+   
+   export interface CasparServerConfig {
+    // Conexión básica
+    host: string;
+    amcpPort: number;
+    oscPort?: number;
+    
+    // Tiempo de espera para operaciones
+    connectionTimeout: number;
+    commandTimeout: number;
+    
+    // Configuración de canales
+    channels: CasparChannel[];
+    
+    // Configuración de capas por canal
+    layers: Record<number, CasparLayer[]>;
+    
+    // Rutas de medios
+    mediaPath: string;
+    templatesPath: string;
+    
+    // Templates disponibles
+    templates: CasparTemplate[];
+    
+    // Opciones de reproducción por defecto
+    defaultVideoMode?: string;
+    defaultFrameRate?: number;
+    
+    // Opciones de reconexión
+    reconnectAttempts: number;
+    reconnectInterval: number;
+    
+    // Logging y debug
+    enableOscLogging?: boolean;
+    enableAmcpLogging?: boolean;
+    logLevel?: 'error' | 'warn' | 'info' | 'debug';
+    
+    // Callbacks personalizados
+    onConnect?: () => void;
+    onDisconnect?: () => void;
+    onError?: (error: Error) => void;
+   }
+   
+   export const DEFAULT_CONFIG: Partial<CasparServerConfig> = {
+    connectionTimeout: 5000,
+    commandTimeout: 2000,
+    reconnectAttempts: 3,
+    reconnectInterval: 5000,
+    enableOscLogging: false,
+    enableAmcpLogging: false,
+    logLevel: 'info'
+   };
+   
+   export function validateConfig(config: Partial<CasparServerConfig>): CasparServerConfig {
+    if (!config.host) throw new Error('CasparCG host is required');
+    if (!config.amcpPort) throw new Error('CasparCG AMCP port is required');
+    if (!config.channels || config.channels.length === 0) {
+      throw new Error('At least one channel must be configured');
+    }
+   
+    return {
+      ...DEFAULT_CONFIG,
+      ...config
+    } as CasparServerConfig;
+   }
+
+================================================================================
+File: backend/src/devices/caspar/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/devices/caspar/types.ts
+
+import { DeviceConfig, DeviceOperationResult } from '../base/types';
+
+/** Configuración específica de CasparCG */
+export interface CasparConfig extends DeviceConfig {
+  channels: number[];
+  layers: number[];
+  defaultChannel?: number;
+  defaultLayer?: number;
+  mediaPath?: string;
+  templatePath?: string;
+  logLevel?: 'trace' | 'debug' | 'info' | 'warning' | 'error';
+}
+
+/** Estados posibles de un item en CasparCG */
+export enum CasparItemState {
+  PLAYING = 'playing',
+  PAUSED = 'paused',
+  STOPPED = 'stopped',
+  LOADING = 'loading',
+  ERROR = 'error'
+}
+
+/** Tipos de comandos soportados */
+export enum CasparCommandType {
+  PLAY = 'play',
+  PAUSE = 'pause',
+  RESUME = 'resume',
+  STOP = 'stop',
+  LOAD = 'load',
+  CLEAR = 'clear',
+  CALL = 'call',
+  SWAP = 'swap',
+  ADD = 'add',
+  REMOVE = 'remove',
+  INFO = 'info'
+}
+
+/** Información de un clip de video */
+export interface CasparClipInfo {
+  type: 'clip';
+  clipName: string;
+  path: string;
+  frames: number;
+  fps: number;
+  duration: number;
+  width: number;
+  height: number;
+  channels: number;
+  format: string;
+}
+
+/** Información de un template */
+export interface CasparTemplateInfo {
+  type: 'template';
+  name: string;
+  path: string;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
+  fields: string[];
+}
+
+/** Parámetros para comando PLAY */
+export interface CasparPlayParams {
+  channel: number;
+  layer: number;
+  clipName: string;
+  loop?: boolean;
+  transition?: {
+    type: 'cut' | 'mix' | 'push' | 'wipe';
+    duration?: number;
+  };
+}
+
+/** Parámetros para comando LOAD */
+export interface CasparLoadParams {
+  channel: number;
+  layer: number;
+  clipName: string;
+  loop?: boolean;
+}
+
+/** Parámetros para comando ADD */
+export interface CasparTemplateParams {
+  channel: number;
+  layer: number;
+  template: string;
+  playOnLoad?: boolean;
+  data?: Record<string, unknown>;
+}
+
+/** Resultado de una operación con clip */
+export interface CasparClipResult extends DeviceOperationResult {
+  data?: {
+    state: CasparItemState;
+    info?: CasparClipInfo;
+    position?: number;
+    duration?: number;
+  };
+}
+
+/** Resultado de una operación con template */
+export interface CasparTemplateResult extends DeviceOperationResult {
+  data?: {
+    state: CasparItemState;
+    info?: CasparTemplateInfo;
+    fields?: Record<string, unknown>;
+  };
+}
+
+/** Estado de un canal */
+export interface CasparChannelState {
+  channel: number;
+  layers: Map<number, CasparLayerState>;
+  format: string;
+  width: number;
+  height: number;
+  fps: number;
+}
+
+/** Estado de una capa */
+export interface CasparLayerState {
+  layer: number;
+  type: 'empty' | 'clip' | 'template';
+  state: CasparItemState;
+  info?: CasparClipInfo | CasparTemplateInfo;
+  background?: boolean;
+}
+
+================================================================================
+File: backend/src/devices/caspar/items/MClip.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/devices/caspar/items/MClip.ts
+
+import { BaseItem } from '../../base/types';
+import { CasparClipConfig, CasparClipState } from '../types';
+import { CasparServer } from '../CasparServer';
+
+export class CasparMClip implements BaseItem {
+    private state: CasparClipState = 'stopped';
+    private server: CasparServer;
+    private config: CasparClipConfig;
+
+    constructor(server: CasparServer, config: CasparClipConfig) {
+        this.server = server;
+        this.config = config;
+    }
+
+    async play(): Promise<void> {
+        try {
+            await this.server.play(
+                this.config.channel,
+                this.config.layer,
+                this.config.clipName,
+                this.config.loop
+            );
+            this.state = 'playing';
+        } catch (error) {
+            console.error('Error playing clip:', error);
+            throw new Error(`Failed to play clip: ${error.message}`);
+        }
+    }
+
+    async stop(): Promise<void> {
+        try {
+            await this.server.stop(this.config.channel, this.config.layer);
+            this.state = 'stopped';
+        } catch (error) {
+            console.error('Error stopping clip:', error);
+            throw new Error(`Failed to stop clip: ${error.message}`);
+        }
+    }
+
+    async getState(): Promise<CasparClipState> {
+        try {
+            const state = await this.server.getClipState(
+                this.config.channel,
+                this.config.layer
+            );
+            this.state = state;
+            return state;
+        } catch (error) {
+            console.error('Error getting clip state:', error);
+            return this.state;
+        }
+    }
+
+    setLoop(enabled: boolean): void {
+        this.config.loop = enabled;
+    }
+
+    getConfig(): CasparClipConfig {
+        return { ...this.config };
+    }
+
+    private validateClipPath(): boolean {
+        return Boolean(this.config.clipName && this.config.clipName.trim());
+    }
+
+    private validateChannel(): boolean {
+        return this.config.channel > 0 && this.config.layer >= 0;
+    }
+}
+
+================================================================================
+File: backend/src/devices/caspar/items/MGraphics.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/devices/caspar/items/MGraphics.ts
+
+import { BaseItem } from '../../base/types';
+import { CasparGraphicsConfig, CasparGraphicsState } from '../types';
+import { CasparServer } from '../CasparServer';
+
+export class CasparMGraphics implements BaseItem {
+    private state: CasparGraphicsState = 'stopped';
+    private server: CasparServer;
+    private config: CasparGraphicsConfig;
+    private currentData: Record<string, any> = {};
+
+    constructor(server: CasparServer, config: CasparGraphicsConfig) {
+        this.server = server;
+        this.config = config;
+    }
+
+    async play(): Promise<void> {
+        try {
+            await this.server.playGraphics(
+                this.config.channel,
+                this.config.layer,
+                this.config.templatePath,
+                this.currentData
+            );
+            this.state = 'playing';
+        } catch (error) {
+            console.error('Error playing graphics:', error);
+            throw new Error(`Failed to play graphics: ${error.message}`);
+        }
+    }
+
+    async stop(): Promise<void> {
+        try {
+            await this.server.stopGraphics(this.config.channel, this.config.layer);
+            this.state = 'stopped';
+        } catch (error) {
+            console.error('Error stopping graphics:', error);
+            throw new Error(`Failed to stop graphics: ${error.message}`);
+        }
+    }
+
+    async update(data: Record<string, any>): Promise<void> {
+        try {
+            await this.server.updateGraphics(
+                this.config.channel,
+                this.config.layer,
+                data
+            );
+            this.currentData = { ...this.currentData, ...data };
+        } catch (error) {
+            console.error('Error updating graphics:', error);
+            throw new Error(`Failed to update graphics: ${error.message}`);
+        }
+    }
+
+    async getState(): Promise<CasparGraphicsState> {
+        try {
+            const state = await this.server.getGraphicsState(
+                this.config.channel,
+                this.config.layer
+            );
+            this.state = state;
+            return state;
+        } catch (error) {
+            console.error('Error getting graphics state:', error);
+            return this.state;
+        }
+    }
+
+    getData(): Record<string, any> {
+        return { ...this.currentData };
+    }
+
+    getConfig(): CasparGraphicsConfig {
+        return { ...this.config };
+    }
+
+    private validateTemplatePath(): boolean {
+        return Boolean(this.config.templatePath && this.config.templatePath.trim());
+    }
+
+    private validateChannel(): boolean {
+        return this.config.channel > 0 && this.config.layer >= 0;
+    }
+}
+
+================================================================================
+File: backend/src/devices/caspar/items/MPrompt.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/devices/caspar/items/MPrompt.ts
+
+import { BaseItem } from '../../base/types';
+import { CasparPromptConfig, CasparPromptState } from '../types';
+import { CasparServer } from '../CasparServer';
+
+export class CasparMPrompt implements BaseItem {
+    private state: CasparPromptState = 'stopped';
+    private server: CasparServer;
+    private config: CasparPromptConfig;
+    private currentText: string = '';
+
+    constructor(server: CasparServer, config: CasparPromptConfig) {
+        this.server = server;
+        this.config = config;
+        this.currentText = config.text || '';
+    }
+
+    async play(): Promise<void> {
+        try {
+            await this.server.playPrompt(
+                this.config.channel,
+                this.config.layer,
+                this.currentText
+            );
+            this.state = 'playing';
+        } catch (error) {
+            console.error('Error playing prompt:', error);
+            throw new Error(`Failed to play prompt: ${error.message}`);
+        }
+    }
+
+    async stop(): Promise<void> {
+        try {
+            await this.server.stopPrompt(this.config.channel, this.config.layer);
+            this.state = 'stopped';
+        } catch (error) {
+            console.error('Error stopping prompt:', error);
+            throw new Error(`Failed to stop prompt: ${error.message}`);
+        }
+    }
+
+    async update(text: string): Promise<void> {
+        try {
+            await this.server.updatePrompt(
+                this.config.channel,
+                this.config.layer,
+                text
+            );
+            this.currentText = text;
+        } catch (error) {
+            console.error('Error updating prompt:', error);
+            throw new Error(`Failed to update prompt: ${error.message}`);
+        }
+    }
+
+    async getState(): Promise<CasparPromptState> {
+        try {
+            const state = await this.server.getPromptState(
+                this.config.channel,
+                this.config.layer
+            );
+            this.state = state;
+            return state;
+        } catch (error) {
+            console.error('Error getting prompt state:', error);
+            return this.state;
+        }
+    }
+
+    getText(): string {
+        return this.currentText;
+    }
+
+    getConfig(): CasparPromptConfig {
+        return { ...this.config };
+    }
+
+    private validateText(): boolean {
+        return Boolean(this.currentText.trim());
+    }
+
+    private validateChannel(): boolean {
+        return this.config.channel > 0 && this.config.layer >= 0;
+    }
+}
+
+================================================================================
+File: backend/src/middleware/auth.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/middleware/auth.ts
+
+import { Request, Response, NextFunction } from 'express';
+import { AuthenticationError } from '../core/errors';
+
+interface AuthenticatedRequest extends Request {
+ user?: {
+   id: string;
+   role: string;
+ };
+}
+
+export const authenticateRequest = (
+ req: AuthenticatedRequest,
+ res: Response,
+ next: NextFunction
+) => {
+ const authHeader = req.headers.authorization;
+
+ // En esta primera versión, simplemente verificamos que haya un token
+ // TODO: Implementar autenticación real en futuras versiones
+ if (!authHeader) {
+   // Para desarrollo, permitimos todas las peticiones
+   req.user = {
+     id: 'development-user',
+     role: 'admin'
+   };
+   return next();
+ }
+
+ try {
+   if (authHeader.startsWith('Bearer ')) {
+     const token = authHeader.substring(7, authHeader.length);
+     
+     // TODO: Validar token cuando se implemente autenticación
+     req.user = {
+       id: 'verified-user',
+       role: 'admin'
+     };
+     
+     next();
+   } else {
+     throw new AuthenticationError('Invalid authorization header format');
+   }
+ } catch (error) {
+   next(new AuthenticationError('Invalid authentication token'));
+ }
+};
+
+export const requireRole = (role: string) => {
+ return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+   if (!req.user) {
+     throw new AuthenticationError('User not authenticated');
+   }
+
+   if (req.user.role !== role) {
+     throw new AuthenticationError('Insufficient permissions');
+   }
+
+   next();
+ };
+};
+
+export const validateApiKey = (
+ req: Request,
+ res: Response,
+ next: NextFunction
+) => {
+ const apiKey = req.headers['x-api-key'];
+
+ // TODO: Implementar validación real de API key en futuras versiones
+ if (!apiKey) {
+   // Para desarrollo, permitimos todas las peticiones
+   return next();
+ }
+
+ // TODO: Validar API key contra configuración o base de datos
+ next();
+};
+
+================================================================================
+File: backend/src/routes/api.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/routes/api.ts
+
+import express from 'express';
+import { authenticateRequest } from '../middleware/auth';
+import { ProjectManager } from '../core/ProjectManager';
+import { DeviceManager } from '../core/DeviceManager';
+import { ValidationError } from '../core/errors';
+
+const router = express.Router();
+
+export function createApiRouter(
+ projectManager: ProjectManager,
+ deviceManager: DeviceManager
+) {
+ // Middleware para todas las rutas API
+ router.use(authenticateRequest);
+
+ // Endpoints de Proyectos
+ router.get('/projects', async (req, res, next) => {
+   try {
+     const projects = await projectManager.getAllProjects();
+     res.json(projects);
+   } catch (error) {
+     next(error);
+   }
+ });
+
+ router.get('/projects/:id', async (req, res, next) => {
+   try {
+     const project = await projectManager.getProject(parseInt(req.params.id));
+     if (!project) {
+       throw new ValidationError(`Project ${req.params.id} not found`);
+     }
+     res.json(project);
+   } catch (error) {
+     next(error);
+   }
+ });
+
+ // Endpoints de Dispositivos
+ router.get('/devices', async (req, res, next) => {
+   try {
+     const devices = await deviceManager.getAllDevices();
+     res.json(devices);
+   } catch (error) {
+     next(error);
+   }
+ });
+
+ router.get('/devices/:id/status', async (req, res, next) => {
+   try {
+     const status = await deviceManager.getDeviceStatus(req.params.id);
+     res.json(status);
+   } catch (error) {
+     next(error);
+   }
+ });
+
+ // Endpoints de Estado del Sistema
+ router.get('/system/status', async (req, res, next) => {
+   try {
+     const status = {
+       devices: await deviceManager.getSystemStatus(),
+       projects: await projectManager.getActiveProjects()
+     };
+     res.json(status);
+   } catch (error) {
+     next(error);
+   }
+ });
+
+ // Manejador de errores para la API
+ router.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+   console.error('API Error:', err);
+
+   if (err instanceof ValidationError) {
+     res.status(400).json({ error: err.message });
+   } else {
+     res.status(500).json({ error: 'Internal server error' });
+   }
+ });
+
+ return router;
+}
+
+================================================================================
+File: backend/src/scripts/initDb.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/scripts/initDb.ts
+
+import { promises as fs } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { Database } from 'sqlite3';
+import { open } from 'sqlite';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+async function initDb() {
+  const dbPath = path.join(__dirname, '../../database/miras.db');
+  const migrationsPath = path.join(__dirname, '../database/migrations');
+
+  try {
+    // Eliminar base de datos existente si existe
+    try {
+      await fs.unlink(dbPath);
+      console.log('Base de datos existente eliminada');
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        throw err;
+      }
+    }
+
+    // Crear directorio de base de datos si no existe
+    await fs.mkdir(path.dirname(dbPath), { recursive: true });
+
+    // Abrir conexión
+    const db = await open({
+      filename: dbPath,
+      driver: Database
+    });
+
+    // Activar foreign keys
+    await db.exec('PRAGMA foreign_keys = ON;');
+
+    // Leer y ejecutar migraciones en orden
+    const files = await fs.readdir(migrationsPath);
+    const migrations = files
+      .filter(f => f.endsWith('.sql'))
+      .sort((a, b) => a.localeCompare(b));
+
+    for (const migration of migrations) {
+      console.log(`Ejecutando migración: ${migration}`);
+      const sql = await fs.readFile(
+        path.join(migrationsPath, migration),
+        'utf-8'
+      );
+      await db.exec(sql);
+    }
+
+    // Insertar datos iniciales
+    const baseDataPath = path.join(__dirname, '../database/seeds/base_data.sql');
+    if (await fs.stat(baseDataPath)) {
+      console.log('Insertando datos base...');
+      const baseData = await fs.readFile(baseDataPath, 'utf-8');
+      await db.exec(baseData);
+    }
+
+    // Insertar datos de prueba en desarrollo
+    if (process.env.NODE_ENV === 'development') {
+      const testDataPath = path.join(__dirname, '../database/seeds/test_data.sql');
+      if (await fs.stat(testDataPath)) {
+        console.log('Insertando datos de prueba...');
+        const testData = await fs.readFile(testDataPath, 'utf-8');
+        await db.exec(testData);
+      }
+    }
+
+    console.log('Base de datos inicializada correctamente');
+    await db.close();
+
+  } catch (error) {
+    console.error('Error inicializando base de datos:', error);
+    process.exit(1);
+  }
+}
+
+// Ejecutar si se llama directamente
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  initDb();
+}
+
+export default initDb;
+
+================================================================================
+File: backend/src/types/shared.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/types/shared.ts
+
+// Estados base
+export enum ConnectionState {
+    DISCONNECTED = 'disconnected',
+    CONNECTING = 'connecting',
+    CONNECTED = 'connected',
+    ERROR = 'error'
+  }
+  
+  export enum ItemState {
+    STOPPED = 'stopped',
+    PLAYING = 'playing',
+    PAUSED = 'paused',
+    LOADING = 'loading',
+    ERROR = 'error'
+  }
+  
+  // Interfaces base
+  export interface Device {
+    id: string;
+    type: 'caspar' | 'vmix' | 'atem';
+    name: string;
+    state: ConnectionState;
+    error?: string;
+  }
+  
+  export interface MItemBase {
+    id: number;
+    type: string;
+    name: string;
+    deviceId: string;
+    state: ItemState;
+    error?: string;
+  }
+  
+  // Tipos específicos de CasparCG
+  export interface CasparClip extends MItemBase {
+    type: 'mclip';
+    channel: number;
+    layer: number;
+    clipName: string;
+    videoPath: string;
+    loop?: boolean;
+    inPoint?: number;
+    outPoint?: number;
+  }
+  
+  export interface CasparGraphics extends MItemBase {
+    type: 'mgraphics';
+    channel: number;
+    layer: number;
+    templatePath: string;
+    templateData?: Record<string, any>;
+  }
+  
+  export interface CasparPrompt extends MItemBase {
+    type: 'mprompt';
+    channel: number;
+    layer: number;
+    text: string;
+    speed?: number;
+  }
+  
+  // Comandos WebSocket
+  export enum WSCommandType {
+    // Comandos de sistema
+    CONNECT = 'connect',
+    DISCONNECT = 'disconnect',
+    GET_STATUS = 'get_status',
+    
+    // Comandos de dispositivos
+    DEVICE_CONNECT = 'device_connect',
+    DEVICE_DISCONNECT = 'device_disconnect',
+    DEVICE_GET_STATUS = 'device_get_status',
+    
+    // Comandos de items
+    ITEM_PLAY = 'item_play',
+    ITEM_STOP = 'item_stop',
+    ITEM_PAUSE = 'item_pause',
+    ITEM_UPDATE = 'item_update',
+    
+    // Comandos de proyectos
+    PROJECT_LOAD = 'project_load',
+    PROJECT_SAVE = 'project_save',
+    PROJECT_CLOSE = 'project_close'
+  }
+  
+  export interface WSCommand {
+    id: string;
+    type: WSCommandType;
+    payload: any;
+    timestamp: number;
+  }
+  
+  export interface WSResponse {
+    commandId: string;
+    success: boolean;
+    data?: any;
+    error?: string;
+    timestamp: number;
+  }
+  
+  // Eventos WebSocket
+  export enum WSEventType {
+    CONNECTION_CHANGED = 'connection_changed',
+    DEVICE_CHANGED = 'device_changed',
+    ITEM_CHANGED = 'item_changed',
+    PROJECT_CHANGED = 'project_changed',
+    ERROR = 'error'
+  }
+  
+  export interface WSEvent {
+    type: WSEventType;
+    payload: any;
+    timestamp: number;
+  }
+  
+  // Tipos de error
+  export interface SystemError {
+    code: string;
+    message: string;
+    details?: any;
+    timestamp: number;
+  }
+  
+  export interface DeviceError extends SystemError {
+    deviceId: string;
+    deviceType: string;
+  }
+  
+  export interface ItemError extends SystemError {
+    itemId: number;
+    itemType: string;
+    deviceId: string;
+  }
+
+================================================================================
+File: backend/src/websocket/server.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/websocket/server.ts
+
+import { WebSocket, WebSocketServer } from 'ws';
+import { 
+    MessageType, 
+    WSMessage, 
+    ConnectedClient, 
+    ConnectionState,
+    WSError 
+} from './types';
+
+class WebSocketManager {
+    private wss: WebSocketServer;
+    private clients: Map<string, ConnectedClient>;
+    private pingInterval: NodeJS.Timeout;
+
+    constructor(port: number) {
+        this.clients = new Map();
+        this.wss = new WebSocketServer({ port });
+        this.setupWebSocket();
+        this.startPingInterval();
+    }
+
+    private setupWebSocket(): void {
+        this.wss.on('connection', (ws: WebSocket) => {
+            const clientId = this.generateClientId();
+            
+            // Registrar nuevo cliente
+            this.clients.set(clientId, {
+                id: clientId,
+                connectionTime: Date.now(),
+                lastPing: Date.now(),
+                state: ConnectionState.CONNECTED
+            });
+
+            // Manejar mensajes
+            ws.on('message', (message: string) => {
+                try {
+                    const parsedMessage = JSON.parse(message) as WSMessage;
+                    this.handleMessage(clientId, ws, parsedMessage);
+                } catch (error) {
+                    this.sendError(ws, {
+                        code: 'INVALID_MESSAGE',
+                        message: 'Invalid message format'
+                    });
+                }
+            });
+
+            // Manejar desconexión
+            ws.on('close', () => {
+                this.clients.delete(clientId);
+                console.log(`Cliente ${clientId} desconectado`);
+            });
+
+            // Manejar errores
+            ws.on('error', (error) => {
+                console.error(`Error en cliente ${clientId}:`, error);
+                this.clients.get(clientId)!.state = ConnectionState.ERROR;
+            });
+
+            // Enviar confirmación de conexión
+            this.sendMessage(ws, {
+                type: MessageType.CONNECT,
+                timestamp: Date.now(),
+                payload: { clientId }
+            });
+        });
+    }
+
+    private handleMessage(clientId: string, ws: WebSocket, message: WSMessage): void {
+        // Actualizar último ping
+        const client = this.clients.get(clientId);
+        if (client) {
+            client.lastPing = Date.now();
+        }
+
+        // Procesar mensaje según tipo
+        switch (message.type) {
+            case MessageType.PING:
+                this.sendMessage(ws, {
+                    type: MessageType.PONG,
+                    timestamp: Date.now(),
+                    payload: null,
+                    requestId: message.requestId
+                });
+                break;
+
+            case MessageType.STATE_REQUEST:
+                // TODO: Implementar envío de estado del sistema
+                break;
+
+            case MessageType.ITEM_PLAY:
+            case MessageType.ITEM_STOP:
+            case MessageType.ITEM_UPDATE:
+                // TODO: Implementar control de items
+                break;
+
+            default:
+                this.sendError(ws, {
+                    code: 'UNKNOWN_MESSAGE_TYPE',
+                    message: `Unknown message type: ${message.type}`
+                });
+        }
+    }
+
+    private sendMessage(ws: WebSocket, message: WSMessage): void {
+        try {
+            ws.send(JSON.stringify(message));
+        } catch (error) {
+            console.error('Error enviando mensaje:', error);
+        }
+    }
+
+    private sendError(ws: WebSocket, error: WSError): void {
+        this.sendMessage(ws, {
+            type: MessageType.ERROR,
+            timestamp: Date.now(),
+            payload: error
+        });
+    }
+
+    private startPingInterval(): void {
+        this.pingInterval = setInterval(() => {
+            const now = Date.now();
+            this.clients.forEach((client, clientId) => {
+                if (now - client.lastPing > 30000) { // 30 segundos sin ping
+                    console.log(`Cliente ${clientId} inactivo, desconectando...`);
+                    this.clients.delete(clientId);
+                }
+            });
+        }, 10000); // Verificar cada 10 segundos
+    }
+
+    private generateClientId(): string {
+        return Math.random().toString(36).substr(2, 9);
+    }
+
+    public broadcast(message: WSMessage): void {
+        this.wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                this.sendMessage(client, message);
+            }
+        });
+    }
+
+    public shutdown(): void {
+        clearInterval(this.pingInterval);
+        this.wss.close();
+    }
+}
+
+export default WebSocketManager;
+
+================================================================================
+File: backend/src/websocket/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/websocket/types.ts
+
+// Tipos de mensajes del sistema
+export enum MessageType {
+    // Conexión y sistema
+    CONNECT = 'CONNECT',
+    DISCONNECT = 'DISCONNECT',
+    ERROR = 'ERROR',
+    PING = 'PING',
+    PONG = 'PONG',
+    
+    // Dispositivos
+    DEVICE_CONNECT = 'DEVICE_CONNECT',
+    DEVICE_DISCONNECT = 'DEVICE_DISCONNECT',
+    DEVICE_STATUS = 'DEVICE_STATUS',
+    
+    // Items
+    ITEM_PLAY = 'ITEM_PLAY',
+    ITEM_STOP = 'ITEM_STOP',
+    ITEM_UPDATE = 'ITEM_UPDATE',
+    ITEM_STATUS = 'ITEM_STATUS',
+    
+    // Eventos
+    EVENT_EXECUTE = 'EVENT_EXECUTE',
+    EVENT_STOP = 'EVENT_STOP',
+    EVENT_STATUS = 'EVENT_STATUS',
+    
+    // Estado del sistema
+    STATE_UPDATE = 'STATE_UPDATE',
+    STATE_REQUEST = 'STATE_REQUEST'
+}
+
+// Estructura base de mensaje
+export interface WSMessage {
+    type: MessageType;
+    timestamp: number;
+    payload: any;
+    requestId?: string;
+    error?: string;
+}
+
+// Estados de conexión
+export enum ConnectionState {
+    CONNECTING = 'CONNECTING',
+    CONNECTED = 'CONNECTED',
+    DISCONNECTED = 'DISCONNECTED',
+    ERROR = 'ERROR'
+}
+
+// Estados de dispositivos
+export enum DeviceState {
+    OFFLINE = 'OFFLINE',
+    CONNECTING = 'CONNECTING',
+    ONLINE = 'ONLINE',
+    ERROR = 'ERROR'
+}
+
+// Estados de reproducción
+export enum PlaybackState {
+    STOPPED = 'STOPPED',
+    PLAYING = 'PLAYING',
+    PAUSED = 'PAUSED',
+    ERROR = 'ERROR'
+}
+
+// Interfaz para clientes conectados
+export interface ConnectedClient {
+    id: string;
+    connectionTime: number;
+    lastPing: number;
+    state: ConnectionState;
+}
+
+// Tipos de respuesta
+export interface WSResponse<T = any> {
+    success: boolean;
+    data?: T;
+    error?: string;
+    requestId?: string;
+}
+
+// Tipos de error
+export interface WSError {
+    code: string;
+    message: string;
+    details?: any;
+}
+
+================================================================================
+File: backend/src/websocket/WSConfig.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /backend/src/websocket/WSConfig.ts
+
+import { WebSocket } from 'ws';
+import { IncomingMessage } from 'http';
+import { WSMessageType, WSClient, WSEventCallback } from './types';
+import { DeviceManager } from '../core/DeviceManager';
+import { StateManager } from '../core/StateManager';
+import { CommandManager } from '../core/CommandManager';
+import { ProjectManager } from '../core/ProjectManager';
+import { logger } from '../utils/logger';
+
+interface WSManagerConfig {
+  deviceManager: DeviceManager;
+  stateManager: StateManager;
+  commandManager: CommandManager;
+  projectManager: ProjectManager;
+}
+
+export class WSManager {
+  private clients: Map<string, WSClient>;
+  private deviceManager: DeviceManager;
+  private stateManager: StateManager;
+  private commandManager: CommandManager;
+  private projectManager: ProjectManager;
+  private eventHandlers: Map<WSMessageType, WSEventCallback[]>;
+
+  constructor(config: WSManagerConfig) {
+    this.clients = new Map();
+    this.deviceManager = config.deviceManager;
+    this.stateManager = config.stateManager;
+    this.commandManager = config.commandManager;
+    this.projectManager = config.projectManager;
+    this.eventHandlers = new Map();
+    this.initializeEventHandlers();
+  }
+
+  handleConnection(ws: WebSocket, request: IncomingMessage) {
+    const clientId = this.generateClientId();
+    
+    const client: WSClient = {
+      id: clientId,
+      ws,
+      isAlive: true,
+      lastPing: Date.now()
+    };
+
+    this.clients.set(clientId, client);
+    logger.info(`Cliente WebSocket conectado: ${clientId}`);
+
+    // Configurar ping/pong
+    ws.on('pong', () => this.handlePong(clientId));
+
+    // Manejar mensajes
+    ws.on('message', (data: string) => this.handleMessage(clientId, data));
+
+    // Manejar desconexión
+    ws.on('close', () => this.handleDisconnection(clientId));
+
+    // Enviar estado inicial
+    this.sendInitialState(client);
+  }
+
+  private sendInitialState(client: WSClient) {
+    const state = this.stateManager.getCurrentState();
+    this.sendToClient(client, {
+      type: 'STATE_UPDATE',
+      payload: state
+    });
+  }
+
+  private handleMessage(clientId: string, data: string) {
+    try {
+      const message = JSON.parse(data);
+      if (!this.isValidMessage(message)) {
+        throw new Error('Mensaje inválido');
+      }
+
+      const handlers = this.eventHandlers.get(message.type);
+      if (handlers) {
+        handlers.forEach(handler => handler(message.payload, clientId));
+      }
+
+    } catch (error) {
+      logger.error(`Error procesando mensaje de ${clientId}:`, error);
+      this.sendError(clientId, 'Error procesando mensaje');
+    }
+  }
+
+  private initializeEventHandlers() {
+    // Comandos de dispositivo
+    this.on('DEVICE_COMMAND', async (payload, clientId) => {
+      try {
+        await this.commandManager.executeCommand(payload);
+        const newState = this.stateManager.getCurrentState();
+        this.broadcastState(newState);
+      } catch (error) {
+        this.sendError(clientId, `Error ejecutando comando: ${error.message}`);
+      }
+    });
+
+    // Operaciones de proyecto
+    this.on('PROJECT_OPERATION', async (payload, clientId) => {
+      try {
+        await this.projectManager.handleOperation(payload);
+        const newState = this.stateManager.getCurrentState();
+        this.broadcastState(newState);
+      } catch (error) {
+        this.sendError(clientId, `Error en operación de proyecto: ${error.message}`);
+      }
+    });
+
+    // Estado de conexión de dispositivo
+    this.on('DEVICE_CONNECT', async (payload, clientId) => {
+      try {
+        await this.deviceManager.connectDevice(payload.deviceId);
+        const newState = this.stateManager.getCurrentState();
+        this.broadcastState(newState);
+      } catch (error) {
+        this.sendError(clientId, `Error conectando dispositivo: ${error.message}`);
+      }
+    });
+  }
+
+  private broadcastState(state: any) {
+    this.broadcast({
+      type: 'STATE_UPDATE',
+      payload: state
+    });
+  }
+
+  private broadcast(message: any) {
+    const data = JSON.stringify(message);
+    this.clients.forEach(client => {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(data);
+      }
+    });
+  }
+
+  private sendToClient(client: WSClient, message: any) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(JSON.stringify(message));
+    }
+  }
+
+  private sendError(clientId: string, error: string) {
+    const client = this.clients.get(clientId);
+    if (client) {
+      this.sendToClient(client, {
+        type: 'ERROR',
+        payload: { message: error }
+      });
+    }
+  }
+
+  private handlePong(clientId: string) {
+    const client = this.clients.get(clientId);
+    if (client) {
+      client.isAlive = true;
+      client.lastPing = Date.now();
+    }
+  }
+
+  private handleDisconnection(clientId: string) {
+    this.clients.delete(clientId);
+    logger.info(`Cliente WebSocket desconectado: ${clientId}`);
+  }
+
+  private generateClientId(): string {
+    return `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private isValidMessage(message: any): message is { type: WSMessageType; payload: any } {
+    return message && typeof message.type === 'string' && message.hasOwnProperty('payload');
+  }
+
+  public on(type: WSMessageType, callback: WSEventCallback) {
+    if (!this.eventHandlers.has(type)) {
+      this.eventHandlers.set(type, []);
+    }
+    this.eventHandlers.get(type)?.push(callback);
+  }
+
+  public startHeartbeat(interval: number = 30000) {
+    setInterval(() => {
+      this.clients.forEach((client, id) => {
+        if (!client.isAlive) {
+          client.ws.terminate();
+          this.clients.delete(id);
+          return;
+        }
+
+        client.isAlive = false;
+        client.ws.ping();
+      });
+    }, interval);
+  }
+}
+
+================================================================================
+File: backend/src/websocket/WSServer.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: backend/src/websocket/WSServer.ts
+
+import { WebSocketServer, WebSocket } from 'ws';
+import { EventEmitter } from 'events';
+import { 
+  StateManager, 
+  StateManagerEvent 
+} from '../core/StateManager';
+import { 
+  ProjectManager, 
+  ProjectManagerEvent 
+} from '../core/ProjectManager';
+import { 
+  DeviceManager, 
+  DeviceManagerEvent 
+} from '../core/DeviceManager';
+import { WebSocketMessage, WSCommandMessage } from './types';
+
+export class WSServer extends EventEmitter {
+  private wss: WebSocketServer;
+  private clients: Set<WebSocket>;
+  private readonly stateManager: StateManager;
+  private readonly projectManager: ProjectManager;
+  private readonly deviceManager: DeviceManager;
+
+  constructor(
+    port: number,
+    stateManager: StateManager,
+    projectManager: ProjectManager,
+    deviceManager: DeviceManager
+  ) {
+    super();
+    this.wss = new WebSocketServer({ port });
+    this.clients = new Set();
+    this.stateManager = stateManager;
+    this.projectManager = projectManager;
+    this.deviceManager = deviceManager;
+
+    this.setupWSServer();
+    this.setupStateListeners();
+    this.setupProjectListeners();
+    this.setupDeviceListeners();
+  }
+
+  private setupWSServer(): void {
+    this.wss.on('connection', (ws: WebSocket) => {
+      console.log('New client connected');
+      this.clients.add(ws);
+      this.stateManager.clientConnected();
+
+      // Enviar estado inicial
+      this.sendToClient(ws, 'initialState', {
+        system: this.stateManager.getState(),
+        project: this.projectManager.getCurrentProject()
+      });
+
+      ws.on('message', (data: string) => {
+        try {
+          const message: WebSocketMessage = JSON.parse(data);
+          this.handleMessage(ws, message);
+        } catch (error) {
+          console.error('Error handling message:', error);
+          this.sendError(ws, 'Invalid message format');
+        }
+      });
+
+      ws.on('close', () => {
+        console.log('Client disconnected');
+        this.clients.delete(ws);
+        this.stateManager.clientDisconnected();
+      });
+
+      ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+        this.sendError(ws, 'WebSocket error occurred');
+      });
+    });
+  }
+
+  private setupStateListeners(): void {
+    this.stateManager.on(StateManagerEvent.STATE_UPDATED, (state) => {
+      this.broadcast('stateUpdate', state);
+    });
+
+    this.stateManager.on(StateManagerEvent.DEVICE_UPDATED, (deviceState) => {
+      this.broadcast('deviceUpdate', deviceState);
+    });
+
+    this.stateManager.on(StateManagerEvent.ERROR, (error) => {
+      this.broadcast('error', error);
+    });
+  }
+
+  private setupProjectListeners(): void {
+    this.projectManager.on(ProjectManagerEvent.PROJECT_LOADED, (project) => {
+      this.broadcast('projectLoaded', project);
+    });
+
+    this.projectManager.on(ProjectManagerEvent.PROJECT_SAVED, (project) => {
+      this.broadcast('projectSaved', project);
+    });
+
+    this.projectManager.on(ProjectManagerEvent.EVENT_UPDATED, (event) => {
+      this.broadcast('eventUpdated', event);
+    });
+
+    this.projectManager.on(ProjectManagerEvent.ITEM_UPDATED, (item) => {
+      this.broadcast('itemUpdated', item);
+    });
+  }
+
+  private setupDeviceListeners(): void {
+    this.deviceManager.on(DeviceManagerEvent.DEVICE_CONNECTED, (deviceState) => {
+      this.broadcast('deviceConnected', deviceState);
+    });
+
+    this.deviceManager.on(DeviceManagerEvent.DEVICE_DISCONNECTED, (deviceState) => {
+      this.broadcast('deviceDisconnected', deviceState);
+    });
+
+    this.deviceManager.on(DeviceManagerEvent.DEVICE_ERROR, (deviceState, error) => {
+      this.broadcast('deviceError', { deviceState, error });
+    });
+  }
+
+  private async handleMessage(ws: WebSocket, message: WebSocketMessage): Promise<void> {
+    console.log('Received message:', message.type);
+
+    try {
+      switch (message.type) {
+        case 'command':
+          await this.handleCommand(ws, message as WSCommandMessage);
+          break;
+
+        case 'loadProject':
+          await this.projectManager.loadProject(message.payload.projectId);
+          break;
+
+        case 'saveProject':
+          await this.projectManager.saveProject();
+          break;
+
+        case 'updateEvent':
+          await this.projectManager.updateEvent(
+            message.payload.eventId,
+            message.payload.updates
+          );
+          break;
+
+        case 'updateItem':
+          await this.projectManager.updateItem(
+            message.payload.itemId,
+            message.payload.updates
+          );
+          break;
+
+        case 'deviceCommand':
+          const device = this.deviceManager.getDevice(message.payload.deviceId);
+          if (device) {
+            await device.executeCommand(
+              message.payload.command,
+              message.payload.params
+            );
+          } else {
+            throw new Error(`Device ${message.payload.deviceId} not found`);
+          }
+          break;
+
+        default:
+          console.warn('Unknown message type:', message.type);
+      }
+    } catch (error) {
+      console.error('Error handling message:', error);
+      this.sendError(ws, error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  private async handleCommand(ws: WebSocket, message: WSCommandMessage): Promise<void> {
+    const { command, params } = message.payload;
+    console.log('Executing command:', command, params);
+
+    try {
+      const result = await this.executeCommand(command, params);
+      this.sendToClient(ws, 'commandResult', {
+        command,
+        success: true,
+        result
+      });
+    } catch (error) {
+      this.sendError(ws, `Command execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async executeCommand(command: string, params: any): Promise<any> {
+    // Implementar lógica de comandos según necesidades
+    switch (command) {
+      // Añadir casos según se necesiten
+      default:
+        throw new Error(`Unknown command: ${command}`);
+    }
+  }
+
+  private broadcast(type: string, payload: any): void {
+    const message = JSON.stringify({ type, payload, timestamp: new Date().toISOString() });
+    this.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
+  }
+
+  private sendToClient(ws: WebSocket, type: string, payload: any): void {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type,
+        payload,
+        timestamp: new Date().toISOString()
+      }));
+    }
+  }
+
+  private sendError(ws: WebSocket, error: string): void {
+    this.sendToClient(ws, 'error', { message: error });
+  }
+
+  public shutdown(): void {
+    this.clients.forEach(client => {
+      client.close();
+    });
+    this.wss.close();
+    this.removeAllListeners();
+  }
+}

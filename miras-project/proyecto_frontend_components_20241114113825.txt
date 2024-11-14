@@ -1,0 +1,2037 @@
+Este es mi proyecto. Memoriza el código y toda la información. Mas adelante te pediré modificaciones. Contesta siempre en español, con el código completo, y añadiendo en la primera linea del código la ruta del fichero. Dame los ficheros de código de uno en uno.
+No cambies nada sin que yo te lo pida o preguntando antes.
+
+Category: frontend_components
+Description: Componentes del frontend
+Generated: 2024-11-14 11:38:25
+================================================================================
+
+Contents:
+--------------------------------------------------------------------------------
+- frontend/src/components/caspar/CasparServerConfig.tsx
+- frontend/src/components/caspar/MClip/MClip.tsx
+- frontend/src/components/caspar/MClip/MClipControls.tsx
+- frontend/src/components/caspar/MClip/types.ts
+- frontend/src/components/caspar/MGraphics/MGraphics.tsx
+- frontend/src/components/caspar/MGraphics/types.ts
+- frontend/src/components/caspar/MPrompt/MPrompt.tsx
+- frontend/src/components/caspar/MPrompt/types.ts
+- frontend/src/components/common/ErrorBoundary.tsx
+- frontend/src/components/common/Loading.tsx
+- frontend/src/components/common/MEvent/MEvent.tsx
+- frontend/src/components/common/MEvent/types.ts
+- frontend/src/components/common/MItemUnion/MItemUnion/MItemUnion.tsx
+- frontend/src/components/common/MItemUnion/MItemUnion/MItemUnionSelector.tsx
+- frontend/src/components/common/Notifications.tsx
+- frontend/src/components/common/ProjectCard.tsx
+- frontend/src/components/common/ServerStatus.tsx
+- frontend/src/components/common/types.ts
+
+================================================================================
+
+
+================================================================================
+File: frontend/src/components/caspar/CasparServerConfig.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/caspar/CasparServerConfig.tsx
+
+import React, { useState, useEffect } from 'react';
+import { Save, X, PlaySquare, AlertCircle } from 'lucide-react';
+
+interface CasparConfig {
+  host: string;
+  port: number;
+  channels: number[];
+  autoConnect: boolean;
+}
+
+interface CasparServerConfigProps {
+  initialConfig?: CasparConfig;
+  onSave: (config: CasparConfig) => Promise<void>;
+  onClose: () => void;
+}
+
+const CasparServerConfig: React.FC<CasparServerConfigProps> = ({
+  initialConfig,
+  onSave,
+  onClose
+}) => {
+  const [config, setConfig] = useState<CasparConfig>({
+    host: 'localhost',
+    port: 5250,
+    channels: [1],
+    autoConnect: true,
+    ...initialConfig
+  });
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsSaving(true);
+
+    try {
+      await onSave(config);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error guardando configuración');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleChannelToggle = (channel: number) => {
+    setConfig(prev => ({
+      ...prev,
+      channels: prev.channels.includes(channel)
+        ? prev.channels.filter(c => c !== channel)
+        : [...prev.channels, channel].sort((a, b) => a - b)
+    }));
+  };
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center gap-2">
+          <PlaySquare className="h-6 w-6 text-blue-400" />
+          <h2 className="text-xl font-bold text-white">Configuración CasparCG</h2>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 hover:bg-gray-700 rounded-full transition-colors"
+        >
+          <X className="h-5 w-5 text-gray-400" />
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-900/20 border border-red-800 rounded flex items-center gap-2 text-red-400">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span className="text-sm">{error}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">
+            Host
+          </label>
+          <input
+            type="text"
+            value={config.host}
+            onChange={e => setConfig(prev => ({ ...prev, host: e.target.value }))}
+            className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">
+            Puerto
+          </label>
+          <input
+            type="number"
+            value={config.port}
+            onChange={e => setConfig(prev => ({ ...prev, port: parseInt(e.target.value) || 5250 }))}
+            className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Canales
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {[1, 2, 3, 4].map(channel => (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => handleChannelToggle(channel)}
+                className={`
+                  px-3 py-1 rounded-full text-sm font-medium transition-colors
+                  ${config.channels.includes(channel)
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}
+                `}
+              >
+                Canal {channel}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="autoConnect"
+            checked={config.autoConnect}
+            onChange={e => setConfig(prev => ({ ...prev, autoConnect: e.target.checked }))}
+            className="rounded bg-gray-700 border-gray-600 text-blue-600 focus:ring-blue-500"
+          />
+          <label htmlFor="autoConnect" className="text-sm text-gray-300">
+            Conectar automáticamente al iniciar
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition-colors"
+            disabled={isSaving}
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <Save className="h-4 w-4" />
+            {isSaving ? 'Guardando...' : 'Guardar'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default CasparServerConfig;
+
+================================================================================
+File: frontend/src/components/caspar/MClip/MClip.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/caspar/MClip/MClip.tsx
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { Play, Square, AlertCircle } from 'lucide-react';
+import { MClipProps, ClipState } from './types';
+import { useWebSocket } from '../../../hooks/useWebSocket';
+import MClipControls from './MClipControls';
+
+const MClip: React.FC<MClipProps> = ({
+  item,
+  isActive = false,
+  onToggle,
+  onStateChange,
+  onError
+}) => {
+  const ws = useWebSocket();
+  const [state, setState] = useState<ClipState>({
+    isPlaying: false
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  // Suscripción a actualizaciones de estado vía WebSocket
+  useEffect(() => {
+    if (!ws) return;
+
+    const handleStateUpdate = (data: any) => {
+      if (data.itemId === item.id && data.type === 'mclip') {
+        setState({
+          isPlaying: data.isPlaying,
+          position: data.position,
+          duration: data.duration,
+          fps: data.fps
+        });
+        onStateChange?.(data);
+      }
+    };
+
+    const handleError = (data: any) => {
+      if (data.itemId === item.id) {
+        setError(data.message);
+        onError?.(data.message);
+      }
+    };
+
+    ws.on('clip:stateUpdate', handleStateUpdate);
+    ws.on('clip:error', handleError);
+
+    return () => {
+      ws.off('clip:stateUpdate', handleStateUpdate);
+      ws.off('clip:error', handleError);
+    };
+  }, [ws, item.id, onStateChange, onError]);
+
+  const handlePlay = useCallback(async () => {
+    if (!ws) return;
+
+    try {
+      setError(null);
+      // Estado optimista
+      setState(prev => ({ ...prev, isPlaying: true }));
+
+      await ws.emit('clip:play', {
+        itemId: item.id,
+        channel: item.config.channel,
+        layer: item.config.layer,
+        clipPath: item.clipPath,
+        timestamp: Date.now()
+      });
+
+      onToggle?.();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error reproduciendo clip';
+      setError(errorMessage);
+      setState(prev => ({ ...prev, isPlaying: false }));
+      onError?.(errorMessage);
+    }
+  }, [ws, item, onToggle, onError]);
+
+  const handleStop = useCallback(async () => {
+    if (!ws) return;
+
+    try {
+      await ws.emit('clip:stop', {
+        itemId: item.id,
+        channel: item.config.channel,
+        layer: item.config.layer,
+        timestamp: Date.now()
+      });
+
+      setState(prev => ({ ...prev, isPlaying: false }));
+      onToggle?.();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error deteniendo clip';
+      setError(errorMessage);
+      onError?.(errorMessage);
+    }
+  }, [ws, item, onToggle, onError]);
+
+  const handleLoopChange = useCallback(async (enable: boolean) => {
+    if (!ws) return;
+
+    try {
+      await ws.emit('clip:loop', {
+        itemId: item.id,
+        channel: item.config.channel,
+        layer: item.config.layer,
+        enable,
+        timestamp: Date.now()
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error configurando loop';
+      setError(errorMessage);
+      onError?.(errorMessage);
+    }
+  }, [ws, item, onError]);
+
+  const backgroundColor = isActive ? item.activeColor : item.inactiveColor;
+
+  return (
+    <div className="flex gap-[1px] h-12 select-none" style={{ width: '265px' }}>
+      {/* Union Slot */}
+      <div 
+        className="w-12 h-full flex flex-col items-center justify-center rounded text-center text-white"
+        style={{ backgroundColor }}
+      >
+        {item.union && (
+          <>
+            <div 
+              className="h-6 w-6 flex items-center justify-center text-white"
+              dangerouslySetInnerHTML={{ __html: item.union.icon }}
+            />
+            <div className="text-xs font-mono">{item.union.position || '0'}</div>
+          </>
+        )}
+      </div>
+
+      {/* Main Content */}
+      <div
+        className="flex items-center gap-2 px-2 py-0.5 text-white rounded h-full w-[217px]"
+        style={{ backgroundColor }}
+      >
+        <MClipControls
+          state={state}
+          config={item.config}
+          onPlay={handlePlay}
+          onStop={handleStop}
+          onLoop={handleLoopChange}
+        />
+
+        <div className="flex flex-col min-w-0 flex-grow">
+          <span className="text-sm font-bold leading-none whitespace-nowrap overflow-hidden overflow-ellipsis">
+            {item.title}
+          </span>
+          <span className="text-xs leading-none whitespace-nowrap overflow-hidden overflow-ellipsis opacity-80">
+            {item.videoId}
+          </span>
+          {state.position !== undefined && state.duration !== undefined && (
+            <span className="text-xs opacity-60">
+              {Math.floor(state.position / (state.fps || 25))}s / {Math.floor(state.duration / (state.fps || 25))}s
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="absolute bottom-full left-0 w-full p-2 bg-red-900/90 rounded shadow-lg mb-1">
+          <div className="flex items-center gap-2 text-red-200 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">{error}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default MClip;
+
+================================================================================
+File: frontend/src/components/caspar/MClip/MClipControls.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/caspar/MClip/MClipControls.tsx
+
+import React, { useState } from 'react';
+import { Play, Square, Repeat } from 'lucide-react';
+import { MClipControlsProps } from './types';
+
+const MClipControls: React.FC<MClipControlsProps> = ({
+  state,
+  config,
+  onPlay,
+  onStop,
+  onLoop,
+  disabled = false
+}) => {
+  const [isLoopEnabled, setIsLoopEnabled] = useState(config.loop || false);
+
+  const handleLoopToggle = () => {
+    const newLoopState = !isLoopEnabled;
+    setIsLoopEnabled(newLoopState);
+    onLoop?.(newLoopState);
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={state.isPlaying ? onStop : onPlay}
+        disabled={disabled}
+        className={`
+          flex items-center justify-center p-1.5 rounded
+          transition-colors
+          ${disabled 
+            ? 'opacity-50 cursor-not-allowed' 
+            : 'hover:bg-black/20'}
+        `}
+        title={state.isPlaying ? 'Detener' : 'Reproducir'}
+      >
+        {state.isPlaying ? (
+          <Square className="h-5 w-5" />
+        ) : (
+          <Play className="h-5 w-5" />
+        )}
+      </button>
+
+      {onLoop && (
+        <button
+          onClick={handleLoopToggle}
+          disabled={disabled}
+          className={`
+            flex items-center justify-center p-1.5 rounded
+            transition-colors
+            ${isLoopEnabled ? 'text-blue-300' : 'text-white/60'}
+            ${disabled 
+              ? 'opacity-50 cursor-not-allowed' 
+              : 'hover:bg-black/20'}
+          `}
+          title="Repetir"
+        >
+          <Repeat className="h-4 w-4" />
+        </button>
+      )}
+
+      {state.position !== undefined && state.duration !== undefined && state.fps && (
+        <div className="ml-1 text-xs opacity-80">
+          {Math.floor(state.position / state.fps)}s
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default MClipControls;
+
+================================================================================
+File: frontend/src/components/caspar/MClip/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/caspar/MClip/types.ts
+
+import { MItemBase } from '../../common/MEvent/types';
+
+export interface ClipState {
+  isPlaying: boolean;
+  position?: number; // Frame actual
+  duration?: number; // Duración total en frames
+  fps?: number;      // Frames por segundo
+  error?: string;
+}
+
+export interface CasparClipConfig {
+  channel: number;
+  layer: number;
+  loop?: boolean;
+  autoPlay?: boolean;
+}
+
+export interface MClipData extends MItemBase {
+  type: 'mclip';
+  title: string;
+  videoId: string;
+  clipPath: string;
+  config: CasparClipConfig;
+}
+
+export interface MClipProps {
+  item: MClipData;
+  isActive?: boolean;
+  onToggle?: () => void;
+  onStateChange?: (state: ClipState) => void;
+  onError?: (error: string) => void;
+}
+
+export interface MClipControlsProps {
+  state: ClipState;
+  config: CasparClipConfig;
+  onPlay: () => void;
+  onStop: () => void;
+  onLoop?: (enable: boolean) => void;
+  disabled?: boolean;
+}
+
+export type ClipCommand = 
+  | { type: 'PLAY'; channel: number; layer: number; clipPath: string }
+  | { type: 'STOP'; channel: number; layer: number }
+  | { type: 'LOOP'; channel: number; layer: number; enable: boolean };
+
+================================================================================
+File: frontend/src/components/caspar/MGraphics/MGraphics.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/caspar/MGraphics/MGraphics.tsx
+
+import React, { useState } from 'react';
+import { Play, Square } from 'lucide-react';
+import { MGraphicsProps } from './types';
+import { useCasparGraphicsControl } from '../../../hooks/useItemControl';
+import MItemUnionSelector from '../../common/MItemUnion/MItemUnionSelector';
+
+const MGraphics: React.FC<MGraphicsProps> = ({
+    item,
+    isActive = false,
+    onToggle,
+    availableUnions,
+    onUnionChange
+}) => {
+    const [isUnionSelectorOpen, setIsUnionSelectorOpen] = useState<{
+        open: boolean;
+        x: number;
+        y: number;
+    }>({
+        open: false,
+        x: 0,
+        y: 0
+    });
+
+    const {
+        play,
+        stop,
+        update,
+        isPlaying,
+        error
+    } = useCasparGraphicsControl(item.id);
+
+    const backgroundColor = isActive ? item.activeColor : item.inactiveColor;
+
+    const handlePlayPause = async () => {
+        try {
+            if (isPlaying) {
+                await stop();
+            } else {
+                await play();
+            }
+            onToggle?.();
+        } catch (err) {
+            console.error('Error controlling graphics:', err);
+        }
+    };
+
+    const handleUnionIconDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        setIsUnionSelectorOpen({
+            open: true,
+            x: rect.left + rect.width/2,
+            y: rect.top + rect.height/2
+        });
+    };
+
+    const handleUnionSelect = (union: any) => {
+        if (onUnionChange) {
+            onUnionChange(item.id, union);
+        }
+    };
+
+    return (
+        <div className="flex gap-[1px] h-12" style={{ width: '265px' }}>
+            <div 
+                className="w-12 h-full flex flex-col items-center justify-center rounded text-center text-white"
+                style={{ backgroundColor }}
+                onDoubleClick={handleUnionIconDoubleClick}
+            >
+                {item.munion && (
+                    <>
+                        <div 
+                            className="h-6 w-6 flex items-center justify-center text-white"
+                            dangerouslySetInnerHTML={{ __html: item.munion.icon }}
+                        />
+                        <div className="text-xs font-mono">
+                            {item.munion.position || '0'}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            <div
+                className="flex items-center gap-2 px-2 py-0.5 text-white rounded h-full w-[217px]"
+                style={{ backgroundColor }}
+            >
+                <button
+                    onClick={handlePlayPause}
+                    className="flex items-center justify-center p-1.5 rounded transition-colors hover:bg-opacity-80"
+                    disabled={Boolean(error)}
+                >
+                    {isPlaying ? (
+                        <Square size={24} className="fill-current" />
+                    ) : (
+                        <Play size={24} className="fill-current" />
+                    )}
+                </button>
+
+                <div className="flex flex-col min-w-0 flex-grow">
+                    <div className="text-sm font-medium truncate">{item.name}</div>
+                    <div className="text-xs opacity-70 truncate">{item.urlweb}</div>
+                </div>
+            </div>
+
+            <MItemUnionSelector
+                isOpen={isUnionSelectorOpen.open}
+                position={{x: isUnionSelectorOpen.x, y: isUnionSelectorOpen.y}}
+                onClose={() => setIsUnionSelectorOpen({open: false, x: 0, y: 0})}
+                onSelect={handleUnionSelect}
+                currentUnion={item.munion}
+                availableUnions={availableUnions}
+            />
+        </div>
+    );
+};
+
+export default MGraphics;
+
+================================================================================
+File: frontend/src/components/caspar/MGraphics/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/caspar/MGraphics/types.ts
+
+import { MUnion } from '../../../core/types';
+
+export interface MGraphicsType {
+    id: number;
+    type: 'mgraphics';
+    name: string;
+    idgraphics: number;
+    urlweb: string;
+    position_row: number;
+    position_column: number;
+    activeColor: string;
+    inactiveColor: string;
+    munion?: MUnion | null;
+}
+
+export interface MGraphicsProps {
+    item: MGraphicsType;
+    isActive?: boolean;
+    onToggle?: () => void;
+    availableUnions: MUnion[];
+    onUnionChange?: (itemId: number, union: MUnion | null) => void;
+}
+
+export interface MGraphicsData {
+    template: string;
+    data: Record<string, any>;
+}
+
+export interface MGraphicsState {
+    isPlaying: boolean;
+    currentData: Record<string, any>;
+    error?: string;
+}
+
+export type MGraphicsCommand = 
+    | { type: 'PLAY'; data?: Record<string, any> }
+    | { type: 'STOP' }
+    | { type: 'UPDATE'; data: Record<string, any> };
+
+export interface MGraphicsConfig {
+    templatePath: string;
+    channel: number;
+    layer: number;
+    initialData?: Record<string, any>;
+}
+
+================================================================================
+File: frontend/src/components/caspar/MPrompt/MPrompt.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/caspar/MPrompt/MPrompt.tsx
+
+import React, { useState } from 'react';
+import { Play, Square } from 'lucide-react';
+import { MPromptProps } from './types';
+import { useCasparPromptControl } from '../../../hooks/useItemControl';
+import MItemUnionSelector from '../../common/MItemUnion/MItemUnionSelector';
+
+const MPrompt: React.FC<MPromptProps> = ({
+    item,
+    isActive = false,
+    onToggle,
+    availableUnions,
+    onUnionChange
+}) => {
+    const [isUnionSelectorOpen, setIsUnionSelectorOpen] = useState<{
+        open: boolean;
+        x: number;
+        y: number;
+    }>({
+        open: false,
+        x: 0,
+        y: 0
+    });
+
+    const {
+        play,
+        stop,
+        update,
+        isPlaying,
+        error
+    } = useCasparPromptControl(item.id);
+
+    const backgroundColor = isActive ? item.activeColor : item.inactiveColor;
+
+    const handlePlayPause = async () => {
+        try {
+            if (isPlaying) {
+                await stop();
+            } else {
+                await play({ text: item.text });
+            }
+            onToggle?.();
+        } catch (err) {
+            console.error('Error controlling prompt:', err);
+        }
+    };
+
+    const handleUnionIconDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        setIsUnionSelectorOpen({
+            open: true,
+            x: rect.left + rect.width/2,
+            y: rect.top + rect.height/2
+        });
+    };
+
+    const handleUnionSelect = (union: any) => {
+        if (onUnionChange) {
+            onUnionChange(item.id, union);
+        }
+    };
+
+    const handleTextUpdate = async (newText: string) => {
+        try {
+            await update({ text: newText });
+        } catch (err) {
+            console.error('Error updating prompt text:', err);
+        }
+    };
+
+    return (
+        <div className="flex gap-[1px] h-12" style={{ width: '265px' }}>
+            <div 
+                className="w-12 h-full flex flex-col items-center justify-center rounded text-center text-white"
+                style={{ backgroundColor }}
+                onDoubleClick={handleUnionIconDoubleClick}
+            >
+                {item.munion && (
+                    <>
+                        <div 
+                            className="h-6 w-6 flex items-center justify-center text-white"
+                            dangerouslySetInnerHTML={{ __html: item.munion.icon }}
+                        />
+                        <div className="text-xs font-mono">
+                            {item.munion.position || '0'}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            <div
+                className="flex items-center gap-2 px-2 py-0.5 text-white rounded h-full w-[217px]"
+                style={{ backgroundColor }}
+            >
+                <button
+                    onClick={handlePlayPause}
+                    className="flex items-center justify-center p-1.5 rounded transition-colors hover:bg-opacity-80"
+                    disabled={Boolean(error)}
+                >
+                    {isPlaying ? (
+                        <Square size={24} className="fill-current" />
+                    ) : (
+                        <Play size={24} className="fill-current" />
+                    )}
+                </button>
+
+                <div className="flex-grow text-sm line-clamp-2">
+                    {item.text}
+                </div>
+            </div>
+
+            <MItemUnionSelector
+                isOpen={isUnionSelectorOpen.open}
+                position={{x: isUnionSelectorOpen.x, y: isUnionSelectorOpen.y}}
+                onClose={() => setIsUnionSelectorOpen({open: false, x: 0, y: 0})}
+                onSelect={handleUnionSelect}
+                currentUnion={item.munion}
+                availableUnions={availableUnions}
+            />
+        </div>
+    );
+};
+
+export default MPrompt;
+
+================================================================================
+File: frontend/src/components/caspar/MPrompt/types.ts
+--------------------------------------------------------------------------------
+// /frontend/src/components/caspar/MPrompt/types.ts
+
+import { Position } from '../../../core/types';
+import { MItemUnion } from '../../common/MItemUnion/types';
+
+export interface MPromptCasparProps {
+    id: number;
+    channel: number;
+    layer: number;
+    text: string;
+    position: Position;
+    union?: MItemUnion;
+    active?: boolean;
+    onStateChange?: (state: MPromptState) => void;
+}
+
+export interface MPromptState {
+    isPlaying: boolean;
+    text: string;
+    error?: string;
+}
+
+export interface MPromptControls {
+    play: () => Promise<void>;
+    stop: () => Promise<void>;
+    updateText: (text: string) => Promise<void>;
+}
+
+================================================================================
+File: frontend/src/components/common/ErrorBoundary.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/common/ErrorBoundary.tsx
+
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { AlertTriangle } from 'lucide-react';
+
+interface Props {
+ children: ReactNode;
+ fallback?: ReactNode;
+}
+
+interface State {
+ hasError: boolean;
+ error?: Error;
+ errorInfo?: ErrorInfo;
+}
+
+class ErrorBoundary extends Component<Props, State> {
+ public state: State = {
+   hasError: false
+ };
+
+ public static getDerivedStateFromError(error: Error): State {
+   return { hasError: true, error };
+ }
+
+ public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+   console.error('Error capturado:', error, errorInfo);
+   this.setState({
+     error,
+     errorInfo
+   });
+ }
+
+ public render() {
+   if (this.state.hasError) {
+     return (
+       this.props.fallback || (
+         <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+           <div className="bg-red-900/20 rounded-lg p-6 max-w-lg w-full border border-red-800">
+             <div className="flex items-center gap-3 mb-4">
+               <AlertTriangle className="h-8 w-8 text-red-500 flex-shrink-0" />
+               <h1 className="text-xl font-semibold text-red-500">
+                 Error en la Aplicación
+               </h1>
+             </div>
+             
+             <div className="space-y-4">
+               <p className="text-red-200">
+                 Se ha producido un error inesperado. Por favor, recarga la página o contacta con soporte si el problema persiste.
+               </p>
+               
+               {process.env.NODE_ENV === 'development' && this.state.error && (
+                 <div className="mt-4">
+                   <h2 className="text-sm font-semibold text-red-400 mb-2">
+                     Detalles del Error (Solo Desarrollo):
+                   </h2>
+                   <pre className="bg-red-900/30 p-3 rounded text-xs text-red-300 overflow-auto">
+                     {this.state.error.toString()}
+                     {'\n\n'}
+                     {this.state.errorInfo?.componentStack}
+                   </pre>
+                 </div>
+               )}
+
+               <div className="flex justify-end mt-4">
+                 <button
+                   onClick={() => window.location.reload()}
+                   className="px-4 py-2 bg-red-700 text-white rounded hover:bg-red-600 transition-colors"
+                 >
+                   Recargar Página
+                 </button>
+               </div>
+             </div>
+           </div>
+         </div>
+       )
+     );
+   }
+
+   return this.props.children;
+ }
+}
+
+export default ErrorBoundary;
+
+================================================================================
+File: frontend/src/components/common/Loading.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/common/Loading.tsx
+
+import React from 'react';
+import { Loader2 } from 'lucide-react';
+
+interface LoadingProps {
+ message?: string;
+ fullScreen?: boolean;
+ size?: 'small' | 'medium' | 'large';
+}
+
+const Loading: React.FC<LoadingProps> = ({
+ message = 'Cargando...',
+ fullScreen = false,
+ size = 'medium'
+}) => {
+ const sizeClasses = {
+   small: 'h-4 w-4',
+   medium: 'h-8 w-8',
+   large: 'h-12 w-12'
+ };
+
+ const content = (
+   <div className="flex flex-col items-center justify-center gap-3">
+     <Loader2 
+       className={`${sizeClasses[size]} text-blue-500 animate-spin`}
+     />
+     {message && (
+       <p className="text-gray-400 animate-pulse">
+         {message}
+       </p>
+     )}
+   </div>
+ );
+
+ if (fullScreen) {
+   return (
+     <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50">
+       {content}
+     </div>
+   );
+ }
+
+ return (
+   <div className="flex items-center justify-center p-4">
+     {content}
+   </div>
+ );
+};
+
+export default Loading;
+
+================================================================================
+File: frontend/src/components/common/Notifications.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/common/Notifications.tsx
+
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle, XCircle, Info, X } from 'lucide-react';
+
+export interface Notification {
+ id: string;
+ type: 'success' | 'error' | 'info' | 'warning';
+ message: string;
+ duration?: number;
+}
+
+interface NotificationsProps {
+ notifications: Notification[];
+ onDismiss: (id: string) => void;
+}
+
+const Notifications: React.FC<NotificationsProps> = ({
+ notifications,
+ onDismiss,
+}) => {
+ const icons = {
+   success: <CheckCircle className="h-5 w-5 text-green-500" />,
+   error: <XCircle className="h-5 w-5 text-red-500" />,
+   warning: <AlertCircle className="h-5 w-5 text-yellow-500" />,
+   info: <Info className="h-5 w-5 text-blue-500" />,
+ };
+
+ const bgColors = {
+   success: 'bg-green-900/20 border-green-800',
+   error: 'bg-red-900/20 border-red-800',
+   warning: 'bg-yellow-900/20 border-yellow-800',
+   info: 'bg-blue-900/20 border-blue-800',
+ };
+
+ useEffect(() => {
+   notifications.forEach((notification) => {
+     if (notification.duration) {
+       const timer = setTimeout(() => {
+         onDismiss(notification.id);
+       }, notification.duration);
+
+       return () => clearTimeout(timer);
+     }
+   });
+ }, [notifications, onDismiss]);
+
+ return (
+   <div className="fixed top-4 right-4 z-50 space-y-2 max-w-md w-full">
+     {notifications.map((notification) => (
+       <div
+         key={notification.id}
+         className={`rounded-lg p-4 border ${bgColors[notification.type]} 
+           shadow-lg transition-all duration-300 animate-slide-in`}
+       >
+         <div className="flex items-center gap-3">
+           {icons[notification.type]}
+           <p className="text-sm text-white flex-grow">
+             {notification.message}
+           </p>
+           <button
+             onClick={() => onDismiss(notification.id)}
+             className="text-gray-400 hover:text-white transition-colors"
+           >
+             <X className="h-5 w-5" />
+           </button>
+         </div>
+         
+         {notification.duration && (
+           <div className="mt-2 h-1 bg-gray-700 rounded overflow-hidden">
+             <div
+               className={`h-full ${
+                 notification.type === 'success' ? 'bg-green-500' :
+                 notification.type === 'error' ? 'bg-red-500' :
+                 notification.type === 'warning' ? 'bg-yellow-500' :
+                 'bg-blue-500'
+               } transition-all duration-${notification.duration}ms`}
+               style={{
+                 width: '100%',
+                 animation: `shrink ${notification.duration}ms linear forwards`,
+               }}
+             />
+           </div>
+         )}
+       </div>
+     ))}
+
+     <style jsx>{`
+       @keyframes shrink {
+         from { width: 100%; }
+         to { width: 0%; }
+       }
+       
+       @keyframes slide-in {
+         from {
+           transform: translateX(100%);
+           opacity: 0;
+         }
+         to {
+           transform: translateX(0);
+           opacity: 1;
+         }
+       }
+
+       .animate-slide-in {
+         animation: slide-in 0.3s ease-out forwards;
+       }
+     `}</style>
+   </div>
+ );
+};
+
+export default Notifications;
+
+================================================================================
+File: frontend/src/components/common/ProjectCard.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/common/ProjectCard.tsx
+
+import React from 'react';
+import { CalendarDays, Clock, Edit, Trash2 } from 'lucide-react';
+import { Project } from '../../core/state/types';
+
+interface ProjectCardProps {
+  project: Project;
+  onEdit?: (project: Project) => void;
+  onDelete?: (project: Project) => void;
+}
+
+const ProjectCard: React.FC<ProjectCardProps> = ({
+  project,
+  onEdit,
+  onDelete,
+}) => {
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Fecha no disponible';
+    }
+  };
+
+  return (
+    <div className="bg-gray-800 rounded-lg p-4 hover:bg-gray-700 transition-colors">
+      <div className="flex justify-between items-start mb-4">
+        <h3 className="text-xl font-bold text-white">{project.project_name}</h3>
+        <div className="flex gap-2">
+          {onEdit && (
+            <button
+              onClick={() => onEdit(project)}
+              className="p-2 hover:bg-gray-600 rounded-full transition-colors"
+              title="Editar proyecto"
+            >
+              <Edit className="h-5 w-5 text-blue-400" />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={() => onDelete(project)}
+              className="p-2 hover:bg-gray-600 rounded-full transition-colors"
+              title="Eliminar proyecto"
+            >
+              <Trash2 className="h-5 w-5 text-red-400" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-2 text-sm text-gray-400">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4" />
+          <span>Creado: {formatDate(project.creation_date)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4" />
+          <span>Modificado: {formatDate(project.modification_date)}</span>
+        </div>
+      </div>
+
+      {project.description && (
+        <div className="mt-4 text-sm text-gray-300 border-t border-gray-700 pt-4">
+          {project.description}
+        </div>
+      )}
+
+      <div className="mt-4 flex gap-2">
+        <span className="px-2 py-1 bg-blue-900/50 text-blue-200 rounded-full text-xs">
+          {project.events?.length || 0} eventos
+        </span>
+      </div>
+    </div>
+  );
+};
+
+export default ProjectCard;
+
+================================================================================
+File: frontend/src/components/common/ServerStatus.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/common/ServerStatus.tsx
+
+import React from 'react';
+import { WifiOff, Wifi, AlertCircle } from 'lucide-react';
+import { ServerState } from '../../core/state/types';
+import { useServerConnection } from '../../hooks/useServerConnection';
+
+interface ServerStatusProps {
+  serverId: string;
+  serverName: string;
+  className?: string;
+}
+
+const ServerStatus: React.FC<ServerStatusProps> = ({ serverId, serverName, className = '' }) => {
+  const { status, lastError } = useServerConnection(serverId);
+
+  const getStatusColor = (status: ServerState) => {
+    switch (status) {
+      case 'connected':
+        return 'text-green-400';
+      case 'connecting':
+        return 'text-yellow-400';
+      case 'disconnected':
+        return 'text-red-400';
+      case 'error':
+        return 'text-orange-400';
+      default:
+        return 'text-gray-400';
+    }
+  };
+
+  const getStatusText = (status: ServerState) => {
+    switch (status) {
+      case 'connected':
+        return 'Conectado';
+      case 'connecting':
+        return 'Conectando...';
+      case 'disconnected':
+        return 'Desconectado';
+      case 'error':
+        return 'Error';
+      default:
+        return 'Desconocido';
+    }
+  };
+
+  const getStatusIcon = (status: ServerState) => {
+    switch (status) {
+      case 'connected':
+        return <Wifi className="h-4 w-4" />;
+      case 'connecting':
+        return <Wifi className="h-4 w-4 animate-pulse" />;
+      case 'disconnected':
+        return <WifiOff className="h-4 w-4" />;
+      case 'error':
+        return <AlertCircle className="h-4 w-4" />;
+      default:
+        return <AlertCircle className="h-4 w-4" />;
+    }
+  };
+
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <div 
+        className={`flex items-center gap-1 px-2 py-1 rounded-full bg-gray-800 ${getStatusColor(status)}`}
+        title={lastError || getStatusText(status)}
+      >
+        {getStatusIcon(status)}
+        <span className="text-sm font-medium">{serverName}</span>
+      </div>
+      
+      {status === 'error' && lastError && (
+        <div className="text-xs text-red-400 truncate max-w-xs" title={lastError}>
+          {lastError}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ServerStatus;
+
+================================================================================
+File: frontend/src/components/common/types.ts
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/common/MItemUnion/types.ts
+
+import { ReactNode } from 'react';
+
+export type UnionType = 'parallel' | 'infinite' | 'manual' | 'sequential';
+
+export interface MUnionConfig {
+  id: number;
+  type: UnionType;
+  name: string;
+  icon: string;
+  compatibleItems: string[];
+  position?: number;
+  delay?: number;
+}
+
+export interface Position {
+  x: number;
+  y: number;
+}
+
+export interface MItemUnionProps {
+  config: MUnionConfig;
+  onToggle?: () => void;
+  onConfigChange?: (config: Partial<MUnionConfig>) => void;
+  isActive?: boolean;
+  disabled?: boolean;
+  children?: ReactNode;
+}
+
+export interface MItemUnionSelectorProps {
+  isOpen: boolean;
+  position: Position;
+  onClose: () => void;
+  onSelect: (config: MUnionConfig | null) => void;
+  currentConfig?: MUnionConfig;
+  availableConfigs: MUnionConfig[];
+}
+
+export interface UnionValidationError {
+  code: string;
+  message: string;
+  details?: Record<string, any>;
+}
+
+export interface UnionExecutionState {
+  isExecuting: boolean;
+  startTime?: number;
+  error?: UnionValidationError;
+}
+
+export interface UnionCompatibility {
+  isCompatible: boolean;
+  error?: UnionValidationError;
+  warnings?: string[];
+}
+
+================================================================================
+File: frontend/src/components/common/MEvent/MEvent.tsx
+--------------------------------------------------------------------------------
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Play, Square, AlertCircle } from 'lucide-react';
+import { MEventProps, MEventState, ItemsByRow, MEventErrorProps } from './types';
+import { useWebSocket } from '../../../hooks/useWebSocket';
+
+// Componente para mostrar errores
+const ErrorDisplay: React.FC<MEventErrorProps> = ({ message, details }) => (
+  <div className="bg-red-900/20 p-4 rounded-lg border border-red-700 text-red-400 flex items-center gap-2">
+    <AlertCircle className="h-5 w-5 flex-shrink-0" />
+    <div className="flex flex-col">
+      <span>{message}</span>
+      {details && <span className="text-sm opacity-75">{details}</span>}
+    </div>
+  </div>
+);
+
+const MEvent: React.FC<MEventProps> = ({
+  id,
+  title,
+  items,
+  union,
+  onEventChange,
+  onUnionChange,
+  onItemChange,
+  children
+}) => {
+  const ws = useWebSocket();
+  
+  const [state, setState] = useState<MEventState>({
+    isExecuting: false,
+    activeRows: {},
+    activeItems: {}
+  });
+
+  // Organizar items por filas
+  const itemsByRow = useMemo(() => {
+    try {
+      if (!items || !Array.isArray(items)) {
+        throw new Error('No hay items válidos en el evento');
+      }
+
+      const rows: ItemsByRow = {};
+      
+      items.forEach(item => {
+        const row = item.position.row;
+        const col = item.position.column;
+        
+        if (!rows[row]) {
+          rows[row] = new Array(3).fill(null);
+        }
+        
+        if (col < 1 || col > 3) {
+          console.warn(`MEvent: Posición de columna inválida (${col}) para item ${item.id}`);
+          return;
+        }
+        
+        rows[row][col - 1] = item;
+      });
+
+      return rows;
+    } catch (err) {
+      setState(prev => ({
+        ...prev,
+        error: err instanceof Error ? err.message : 'Error al procesar los items'
+      }));
+      return {};
+    }
+  }, [items]);
+
+  // Lista de números de fila ordenados
+  const rows = useMemo(() => 
+    Object.keys(itemsByRow)
+      .map(Number)
+      .sort((a, b) => a - b),
+    [itemsByRow]
+  );
+
+  // Escuchar eventos de WebSocket
+  useEffect(() => {
+    if (!ws) return;
+
+    const handleStateUpdate = (data: any) => {
+      if (data.eventId === id) {
+        setState(prev => ({
+          ...prev,
+          isExecuting: data.isExecuting,
+          activeItems: data.activeItems || {}
+        }));
+      }
+    };
+
+    const handleError = (data: any) => {
+      if (data.eventId === id) {
+        setState(prev => ({
+          ...prev,
+          error: data.message
+        }));
+      }
+    };
+
+    ws.on('event:stateUpdate', handleStateUpdate);
+    ws.on('event:error', handleError);
+
+    return () => {
+      ws.off('event:stateUpdate', handleStateUpdate);
+      ws.off('event:error', handleError);
+    };
+  }, [ws, id]);
+
+  // Manejadores de eventos
+  const toggleRow = useCallback(async (row: number) => {
+    if (!ws) return;
+
+    const newRowState = !state.activeRows[row];
+    const rowItems = itemsByRow[row] || [];
+    const itemIds = rowItems.filter(item => item !== null).map(item => item!.id);
+
+    try {
+      await ws.emit('event:toggleRow', {
+        eventId: id,
+        row,
+        itemIds,
+        active: newRowState
+      });
+
+      setState(prev => ({
+        ...prev,
+        activeRows: {
+          ...prev.activeRows,
+          [row]: newRowState
+        }
+      }));
+    } catch (err) {
+      setState(prev => ({
+        ...prev,
+        error: err instanceof Error ? err.message : 'Error al cambiar estado de fila'
+      }));
+    }
+  }, [ws, id, state.activeRows, itemsByRow]);
+
+  const executeEvent = useCallback(async () => {
+    if (!ws) return;
+
+    try {
+      setState(prev => ({ ...prev, isExecuting: true, error: undefined }));
+      
+      await ws.emit('event:execute', {
+        eventId: id,
+        timestamp: Date.now()
+      });
+    } catch (err) {
+      setState(prev => ({
+        ...prev,
+        isExecuting: false,
+        error: err instanceof Error ? err.message : 'Error al ejecutar evento'
+      }));
+    }
+  }, [ws, id]);
+
+  const stopEvent = useCallback(async () => {
+    if (!ws) return;
+
+    try {
+      await ws.emit('event:stop', {
+        eventId: id,
+        timestamp: Date.now()
+      });
+
+      setState(prev => ({
+        ...prev,
+        isExecuting: false,
+        activeRows: {},
+        activeItems: {}
+      }));
+    } catch (err) {
+      setState(prev => ({
+        ...prev,
+        error: err instanceof Error ? err.message : 'Error al detener evento'
+      }));
+    }
+  }, [ws, id]);
+
+  // Si hay error general en el evento
+  if (state.error) {
+    return <ErrorDisplay message={state.error} />;
+  }
+
+  const isAnyItemActive = Object.values(state.activeItems).some(active => active);
+  const eventBackgroundColor = isAnyItemActive ? 'bg-blue-600' : 'bg-gray-700';
+
+  return (
+    <div className="bg-gray-800 p-4 rounded-lg shadow-lg border border-gray-700">
+      {/* Cabecera del evento */}
+      <div className="flex items-center gap-2 mb-2 select-none">
+        {union && (
+          <div className="grid grid-cols-2 gap-[1px] h-10 w-20">
+            <div
+              className={`flex items-center justify-center ${eventBackgroundColor} rounded cursor-pointer hover:bg-gray-600 transition-colors`}
+              style={{ height: '100%', width: '100%' }}
+            >
+              <div
+                className="h-6 w-6"
+                dangerouslySetInnerHTML={{ __html: union.icon }}
+              />
+            </div>
+            <div
+              className={`flex items-center justify-center ${eventBackgroundColor} rounded`}
+              style={{ height: '100%', width: '100%' }}
+            >
+              <button
+                onClick={state.isExecuting ? stopEvent : executeEvent}
+                className="flex items-center justify-center p-1.5 rounded transition-colors hover:bg-opacity-80"
+              >
+                {state.isExecuting ? (
+                  <Square size={24} className="fill-current" />
+                ) : (
+                  <Play size={24} className="fill-current" />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <h2 className="text-lg font-bold text-white select-none">
+          {title}
+        </h2>
+
+        {children}
+      </div>
+
+      {/* Filas de items */}
+      <div className="space-y-0">
+        {rows.length === 0 ? (
+          <div className="text-center text-gray-500 py-4">
+            No hay items en este evento
+          </div>
+        ) : (
+          rows.map((rowNum, index) => {
+            const isRowActive = state.activeRows[rowNum] || false;
+            const rowItems = itemsByRow[rowNum];
+
+            return (
+              <div key={rowNum}>
+                <div className="flex gap-2 py-2">
+                  <button
+                    onClick={() => toggleRow(rowNum)}
+                    className={`
+                      w-12 h-12 rounded flex items-center justify-center transition-colors shrink-0
+                      ${isRowActive ? 'bg-blue-600 hover:bg-blue-500' : 'bg-gray-700 hover:bg-gray-600'}
+                    `}
+                    title={isRowActive ? 'Detener fila' : 'Reproducir fila'}
+                  >
+                    {isRowActive ? (
+                      <Square className="w-6 h-6 text-white" />
+                    ) : (
+                      <Play className="w-6 h-6 text-white" />
+                    )}
+                  </button>
+
+                  {/* Contenedor con scroll horizontal */}
+                  <div className="overflow-x-auto">
+                    <div className="flex gap-2 min-w-min">
+                      {rowItems?.map((item, colIndex) => (
+                        <React.Fragment key={item?.id || `empty-${rowNum}-${colIndex}`}>
+                          {item ? (
+                            <div className="w-[265px] h-12">
+                              {/* Aquí se renderizará el componente específico según item.type */}
+                              {children}
+                            </div>
+                          ) : (
+                            <div className="w-[265px] h-12 bg-gray-700/20 rounded shrink-0" />
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {index < rows.length - 1 && (
+                  <div className="border-b border-gray-300/10" />
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default MEvent;
+
+================================================================================
+File: frontend/src/components/common/MEvent/types.ts
+--------------------------------------------------------------------------------
+import { ReactNode } from 'react';
+import { MUnionConfig } from '../MItemUnion/types';
+
+export interface MItemPosition {
+  row: number;
+  column: number;
+}
+
+export interface MItemBase {
+  id: number;
+  type: string;
+  position: MItemPosition;
+  union?: MUnionConfig;
+}
+
+export interface MEventState {
+  isExecuting: boolean;
+  activeRows: Record<number, boolean>;
+  activeItems: Record<number, boolean>;
+  error?: string;
+}
+
+export interface MEventProps {
+  id: number;
+  title: string;
+  order: number;
+  items: MItemBase[];
+  union?: MUnionConfig;
+  onEventChange?: (eventId: number, changes: Partial<MEventProps>) => void;
+  onUnionChange?: (eventId: number, union: MUnionConfig | null) => void;
+  onItemChange?: (eventId: number, itemId: number, changes: Partial<MItemBase>) => void;
+  children?: ReactNode;
+}
+
+export interface MEventRowProps {
+  rowNumber: number;
+  items: (MItemBase | null)[];
+  isActive: boolean;
+  onToggleRow: (row: number) => void;
+  onItemChange?: (itemId: number, changes: Partial<MItemBase>) => void;
+  availableUnions: MUnionConfig[];
+}
+
+export interface MEventErrorProps {
+  message: string;
+  details?: string;
+}
+
+export type ItemsByRow = Record<number, (MItemBase | null)[]>;
+
+================================================================================
+File: frontend/src/components/common/MItemUnion/MItemUnion/MItemUnion.tsx
+--------------------------------------------------------------------------------
+// Ruta del fichero: /frontend/src/components/common/MItemUnion/MItemUnion.tsx
+
+import React, { useState, useCallback, useEffect } from 'react';
+import { Play, Square, AlertCircle } from 'lucide-react';
+import { MItemUnionProps, UnionExecutionState } from './types';
+import { useWebSocket } from '../../../hooks/useWebSocket';
+
+const MItemUnion: React.FC<MItemUnionProps> = ({
+  config,
+  onToggle,
+  onConfigChange,
+  isActive = false,
+  disabled = false,
+  children
+}) => {
+  const ws = useWebSocket();
+  const [executionState, setExecutionState] = useState<UnionExecutionState>({
+    isExecuting: false
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  // Escuchar eventos de estado del WebSocket
+  useEffect(() => {
+    if (!ws) return;
+
+    const handleStateUpdate = (data: any) => {
+      if (data.unionId === config.id) {
+        setExecutionState({
+          isExecuting: data.isExecuting,
+          startTime: data.startTime
+        });
+      }
+    };
+
+    const handleError = (data: any) => {
+      if (data.unionId === config.id) {
+        setError(data.message);
+        setExecutionState(prev => ({
+          ...prev,
+          isExecuting: false,
+          error: data
+        }));
+      }
+    };
+
+    ws.on('union:stateUpdate', handleStateUpdate);
+    ws.on('union:error', handleError);
+
+    return () => {
+      ws.off('union:stateUpdate', handleStateUpdate);
+      ws.off('union:error', handleError);
+    };
+  }, [ws, config.id]);
+
+  const handleExecute = useCallback(async () => {
+    if (!ws || disabled) return;
+
+    try {
+      setError(null);
+      setExecutionState(prev => ({ ...prev, isExecuting: true }));
+
+      await ws.emit('union:execute', {
+        unionId: config.id,
+        type: config.type,
+        timestamp: Date.now()
+      });
+
+      onToggle?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error ejecutando unión');
+      setExecutionState(prev => ({ ...prev, isExecuting: false }));
+    }
+  }, [ws, config, disabled, onToggle]);
+
+  const handleCancel = useCallback(async () => {
+    if (!ws || disabled) return;
+
+    try {
+      await ws.emit('union:cancel', {
+        unionId: config.id,
+        timestamp: Date.now()
+      });
+
+      setExecutionState({ isExecuting: false });
+      onToggle?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error cancelando unión');
+    }
+  }, [ws, config.id, disabled, onToggle]);
+
+  return (
+    <div className={`
+      flex flex-col items-center gap-2 p-2 rounded-lg
+      ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+      ${error ? 'bg-red-500/10' : 'bg-gray-800/50'}
+    `}>
+      {/* Icono y controles */}
+      <div className="flex items-center gap-2">
+        <div 
+          className="w-8 h-8 flex items-center justify-center"
+          dangerouslySetInnerHTML={{ __html: config.icon }}
+        />
+        
+        <button
+          onClick={executionState.isExecuting ? handleCancel : handleExecute}
+          disabled={disabled}
+          className={`
+            p-1 rounded
+            ${disabled 
+              ? 'bg-gray-700 cursor-not-allowed' 
+              : 'hover:bg-gray-700'}
+          `}
+        >
+          {executionState.isExecuting ? (
+            <Square className="w-4 h-4" />
+          ) : (
+            <Play className="w-4 h-4" />
+          )}
+        </button>
+      </div>
+
+      {/* Nombre y posición */}
+      <div className="text-center">
+        <div className="text-sm font-medium">{config.name}</div>
+        {config.position !== undefined && (
+          <div className="text-xs opacity-60">Pos: {config.position}</div>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-1 text-red-400 text-xs">
+          <AlertCircle className="w-3 h-3" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Contenido adicional */}
+      {children}
+    </div>
+  );
+};
+
+export default MItemUnion;
+
+================================================================================
+File: frontend/src/components/common/MItemUnion/MItemUnion/MItemUnionSelector.tsx
+--------------------------------------------------------------------------------
+import React, { useEffect, useState } from 'react';
+import { X, AlertCircle } from 'lucide-react';
+import { MItemUnionSelectorProps, MUnionConfig } from './types';
+
+const MItemUnionSelector: React.FC<MItemUnionSelectorProps> = ({
+  isOpen,
+  position,
+  onClose,
+  onSelect,
+  currentConfig,
+  availableConfigs
+}) => {
+  const [selectedConfig, setSelectedConfig] = useState<MUnionConfig | null>(null);
+  const [delay, setDelay] = useState<number>(0);
+  const [position_, setPosition] = useState<number>(0);
+  const [style, setStyle] = useState<React.CSSProperties>({});
+
+  useEffect(() => {
+    if (currentConfig) {
+      setSelectedConfig(currentConfig);
+      setDelay(currentConfig.delay || 0);
+      setPosition_(currentConfig.position || 0);
+    } else {
+      setSelectedConfig(null);
+      setDelay(0);
+      setPosition_(0);
+    }
+  }, [currentConfig]);
+
+  useEffect(() => {
+    if (isOpen && position) {
+      const menuWidth = 400;
+      const menuHeight = 400;
+      
+      let x = position.x - (menuWidth / 2);
+      let y = position.y;
+
+      // Ajustes para mantener visible
+      if (x + menuWidth > window.innerWidth) {
+        x = window.innerWidth - menuWidth - 10;
+      }
+      if (x < 0) {
+        x = 10;
+      }
+      if (y + menuHeight > window.innerHeight) {
+        y = window.innerHeight - menuHeight - 10;
+      }
+      if (y < 0) {
+        y = 10;
+      }
+
+      setStyle({
+        position: 'fixed',
+        left: `${x}px`,
+        top: `${y}px`,
+        zIndex: 50,
+      });
+    }
+  }, [isOpen, position]);
+
+  const handleApply = () => {
+    if (selectedConfig) {
+      onSelect({
+        ...selectedConfig,
+        delay,
+        position: position_
+      });
+    } else {
+      onSelect(null);
+    }
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-50 z-40"
+        onClick={onClose}
+      />
+      
+      <div 
+        className="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-[400px]"
+        style={style}
+      >
+        {/* Header */}
+        <div className="flex justify-between items-center p-3 border-b border-gray-700">
+          <h2 className="text-sm font-semibold text-white">Configuración de Unión</h2>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-gray-700 rounded-full transition-colors"
+          >
+            <X className="h-4 w-4 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Lista de uniones */}
+        <div className="max-h-[250px] overflow-y-auto">
+          <button
+            onClick={() => setSelectedConfig(null)}
+            className={`
+              w-full p-3 flex items-center gap-3 transition-colors
+              hover:bg-gray-700
+              ${!selectedConfig ? 'bg-blue-600/20' : 'bg-transparent'}
+              border-b border-gray-700
+            `}
+          >
+            <div className="flex flex-col items-start text-left min-w-0">
+              <span className="font-medium text-white text-sm">Sin unión</span>
+              <span className="text-xs text-gray-400">Eliminar la unión actual</span>
+            </div>
+          </button>
+
+          {availableConfigs.map((config) => (
+            <button
+              key={config.id}
+              onClick={() => setSelectedConfig(config)}
+              className={`
+                w-full p-3 flex items-center gap-3 transition-colors
+                hover:bg-gray-700
+                ${selectedConfig?.id === config.id ? 'bg-blue-600/20' : 'bg-transparent'}
+              `}
+            >
+              <div 
+                className="w-10 h-10 flex items-center justify-center flex-shrink-0"
+                dangerouslySetInnerHTML={{ __html: config.icon }}
+              />
+              
+              <div className="flex flex-col items-start text-left min-w-0">
+                <span className="font-medium text-white text-sm truncate w-full">
+                  {config.name}
+                </span>
+                <span className="text-xs text-gray-400 truncate w-full">
+                  {config.compatibleItems.join(', ')}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Configuración adicional */}
+        <div className="p-4 border-t border-gray-700">
+          <div className="space-y-4">
+            {/* Delay */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-white">
+                Tiempo de espera (segundos)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                value={delay}
+                onChange={(e) => setDelay(parseFloat(e.target.value) || 0)}
+                className="bg-gray-700 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!selectedConfig}
+              />
+            </div>
+
+            {/* Position */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-white">
+                Posición de ejecución
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={position_}
+                onChange={(e) => setPosition_(parseInt(e.target.value) || 0)}
+                className="bg-gray-700 text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!selectedConfig}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 p-4 border-t border-gray-700">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleApply}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-500 transition-colors"
+          >
+            Aplicar
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default MItemUnionSelector;
